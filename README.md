@@ -4,7 +4,8 @@ This repository **(will)** contains a copilot that uses various AI models, altho
 
 ## Overview
 
-Copilot is designed as an experimental platform that integrates multiple AI models such as GPT variants and DALL·E. The current focus is on creating a chat interface similar to ChatGPT. In the future, its functionality may expand beyond simple chat, evolving into a comprehensive AI-powered assistant.
+> [!NOTE]
+> Copilot is designed as an experimental platform that integrates multiple AI models such as GPT variants and DALL·E. The current focus is on creating a chat interface similar to ChatGPT. In the future, its functionality may expand beyond simple chat, evolving into a comprehensive AI-powered assistant.
 
 ## To Do
 
