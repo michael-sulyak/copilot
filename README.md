@@ -5,7 +5,7 @@
 > [!NOTE]
 > This repository contains an experimental copilot that integrates multiple AI models. Its primary function is a chat interface, with plans to expand its capabilities in the rapidly evolving AI field. **Note that this project is a work in progress—features may be added or removed as the project evolves.**
 
-## To Do
+## To do
 
 - [ ] ???
 
@@ -20,7 +20,7 @@
 - Audio recording and parsing.
 - Customizable prompt management for dynamic interactions.
 
-## Project Structure
+## Project structure
 
 - `app/`  
   Contains the Python backend code.
@@ -76,12 +76,12 @@ Edit the environment variables to set the following parameters:
 
 The chat functionality can be tailored by setting up custom prompt and profile configurations. Below are two sample examples that you can modify as needed.
 
-### Example Prompt: Text Improvement
+### Example prompt: Text improvement
 
 This sample prompt is designed for a text improvement scenario. It instructs the system to act as an editor that checks and refines the text before publication.
 
 - **File:** `configs/prompts/sample_prompt.yaml`
-- **Contents Example:**
+- **Contents example:**
 
   ```yaml
   name: "Text Improvement Prompt ({{ short_lang }})"
@@ -99,9 +99,7 @@ This sample prompt is designed for a text improvement scenario. It instructs the
     3. Maintain the original tone and meaning.
     
     Here is the text to review:
-    ```
     {your_text}
-    ```
   ```
   
 Or without versions:
@@ -117,17 +115,15 @@ Or without versions:
     3. Maintain the original tone and meaning.
     
     Here is the text to review:
-    ```
     {your_text}
-    ```
   ```
 
-### Example Profile: Standard Chat Settings
+### Example profile: Standard chat settings
 
 This profile defines default parameters for chat interactions such as creativity level and reasoning depth. It is intended for general-purpose queries.
 
 - **File:** `configs/profiles/sample_profile.yaml`
-- **Contents Example:**
+- **Contents example:**
 
   ```yaml
   temperature: 0.5
