@@ -18,16 +18,16 @@
 - Fully asynchronous server-side code implemented with Python and aiohttp.
 - Aggregation of messages from Telegram channels/chats.
 - Audio recording and parsing.
-- Custom prompt management for chats.
+- Customizable prompt management for dynamic interactions.
 
 ## Project Structure
 
 - `app/`  
-  Contains Python backend code.
+  Contains the Python backend code.
 - `gui/`  
   Contains the frontend source code.
 - `configs/`  
-  Contains main configs like prompts, profiles and dialogs settings.
+  Contains configuration files including prompts, profiles, and dialogs settings.
 - `main.py`  
   The application entry point.
 
@@ -65,12 +65,85 @@ Follow these steps to get started:
 
 ## Configuration
 
-Edit the environment variables or the configuration file `config.py` to set the following parameters:
+Edit the environment variables to set the following parameters:
 
 - `DEV_MODE`: Set to `True` for development mode (runs backend only).
-- `GOOGLE_APP_ID`: Provide your Google App ID if running in Chrome app mode (the copilot currently runs as a Progressive Web App; install it in Chrome and copy the ID from the app settings).
+- `GOOGLE_APP_ID`: Provide your Google App ID if running in Chrome app mode. The copilot runs as a Progressive Web App, install it in Chrome and copy the ID from the app settings.
 - `UPLOADS_DIR`: Specify the directory for storing uploaded files.
 - `HOST_NAME` and `PORT`: Configure the host name and port for the web server.
+
+## Chat Configuration Examples
+
+The chat functionality can be tailored by setting up custom prompt and profile configurations. Below are two sample examples that you can modify as needed.
+
+### Example Prompt: Text Improvement
+
+This sample prompt is designed for a text improvement scenario. It instructs the system to act as an editor that checks and refines the text before publication.
+
+- **File:** `configs/prompts/sample_prompt.yaml`
+- **Contents Example:**
+
+  ```yaml
+  name: "Text Improvement Prompt ({{ short_lang }})"
+
+  versions:
+    - lang: "English"
+      short_lang: "EN"
+    - lang: "Chinese"
+      short_lang: "CN"
+
+  prompt: |
+    Imagine you are an experienced editor responsible for refining texts in {{ lang }} before they are published. Your task is to:
+    1. Correct any spelling and grammatical errors.
+    2. Enhance the clarity and readability of the text.
+    3. Maintain the original tone and meaning.
+    
+    Here is the text to review:
+    ```
+    {your_text}
+    ```
+  ```
+  
+Or without versions:
+
+
+  ```yaml
+  name: "Text Improvement Prompt"
+
+  prompt: |
+    Imagine you are an experienced editor responsible for refining texts before they are published. Your task is to:
+    1. Correct any spelling and grammatical errors.
+    2. Enhance the clarity and readability of the text.
+    3. Maintain the original tone and meaning.
+    
+    Here is the text to review:
+    ```
+    {your_text}
+    ```
+  ```
+
+### Example Profile: Standard Chat Settings
+
+This profile defines default parameters for chat interactions such as creativity level and reasoning depth. It is intended for general-purpose queries.
+
+- **File:** `configs/profiles/sample_profile.yaml`
+- **Contents Example:**
+
+  ```yaml
+  temperature: 0.5
+  top_p: 0.5
+  reasoning_effort: "medium"
+  text: |
+      You are a friendly assistant specializing in providing clear and concise answers. Your role is to explain ideas and solve problems in a manner that is both informative and easy to understand. Remember to:
+      
+      - Use the Metric system and Celsius for any measurements.
+      - Format mathematical formulas using LaTeX. For example, express the equation of a line as $y = mx + c$.
+      
+      How can I help you today?
+  ```
+
+- **How to configure:**  
+  Modify parameters like `temperature`, `top_p`, and `reasoning_effort` to adjust the chatbot's behavior. Change the `text` field to alter the initial prompt or instructions that the assistant uses for every session.
 
 ## Running the Application
 

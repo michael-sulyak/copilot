@@ -5,3 +5,6 @@ py_format:
 
 js_format:
 	npm run format --prefix gui
+
+build_gui:
+	npm run build --prefix gui
