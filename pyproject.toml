@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "jarvis-v2"
+version = "0.1.0"
+description = ""
+authors = ["Michael"]
+readme = "README.md"
+packages = [{ include = "jarvis_v2" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+openai = "^1.1.1"
+aiohttp = "^3.8.4"
+aiohttp-rpc = "^1.3.0b1"
+setuptools = "^75.6.0"
+telethon = "^1.36.0"
+tiktoken = "^0.9.0"
+duckduckgo-search = "^7.3.0"
+beautifulsoup4 = "^4.3.2"
+newspaper3k = "^0.2.8"
+numpy = "^2.0.0"
+pydantic = "^2.8.2"
+aiohttp-cors = "^0.7.0"
+lxml = {extras = ["html-clean"], version = "^5.2.2"}
+html2text = "^2024.2.26"
+pandas = "^2.2.3"
+openpyxl = "^3.1.5"
+python-magic = "^0.4.27"
+jinja2 = "^3.1.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
