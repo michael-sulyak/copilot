@@ -1,0 +1,41 @@
+:root {
+    --primary-color: #171717;
+    --secondary-color: #212121;
+    --tertiary-color: #1f1f1f;
+    --dark-additional-color: rgb(5, 37, 65);
+    --text-color: rgb(236, 236, 241);
+
+    --black095: rgba(32, 33, 35, 0.95);
+    --black075: rgba(32, 33, 35, 0.75);
+    --black05: rgba(32, 33, 35, 0.5);
+    --black025: rgba(32, 33, 35, 0.25);
+    --black01: rgba(32, 33, 35, 0.1);
+    --black005: rgba(32, 33, 35, 0.05);
+
+    --white05: rgba(255, 255, 255, 0.5);
+    --white025: rgba(255, 255, 255, 0.25);
+    --white01: rgba(255, 255, 255, 0.1);
+    --white005: rgba(255, 255, 255, 0.05);
+
+    --box-radius: 0.4rem;
+    --box-radius-2: 1rem;
+
+    --small-animation-duration: 0.2s;
+    --medium-animation-duration: 0.5s;
+    --large-animation-duration: 0.7s;
+}
+
+.main-loader {
+    background: var(--secondary-color);
+    color: var(--text-color);
+    width: 100vw;
+    height: 100vh;
+    font-size: 1em;
+    position: absolute;
+    top: 0;
+    left: 0;
+    text-align: center;
+    line-height: 100vh;
+    z-index: 9;
+    font-family: Arial, sans-serif;
+}

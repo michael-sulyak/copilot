@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Copilot",
+  "short_name": "AI",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#202123FF",
+  "background_color": "#ffffff"
+}
