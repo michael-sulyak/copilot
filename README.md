@@ -134,8 +134,6 @@ This profile defines default parameters for chat interactions such as creativity
       
       - Use the Metric system and Celsius for any measurements.
       - Format mathematical formulas using LaTeX. For example, express the equation of a line as $y = mx + c$.
-      
-      How can I help you today?
   ```
 
 - **How to configure:**  
