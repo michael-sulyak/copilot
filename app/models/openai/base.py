@@ -293,7 +293,7 @@ class BaseGPT:
                 logging.warning(e)
 
                 if attempt >= cls.max_retries:
-                    raise e
+                    raise
 
                 logging.warning(e)
 
@@ -302,7 +302,7 @@ class BaseGPT:
                 logging.warning(e)
 
                 if attempt >= cls.max_retries:
-                    raise e
+                    raise
 
                 logging.warning(e)
 

@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 import logging
-from pprint import pprint
 
 import aiohttp
 import html2text
@@ -97,8 +96,7 @@ class Searcher(BaseDialog):
             content=prompt,
         ))
 
-        print('History:')
-        pprint(self.memory.get_buffer())
+        logging.info('History: %s', self.memory.get_buffer())
 
         try:
             response = await GPT4mini.process(
@@ -136,8 +134,7 @@ class Searcher(BaseDialog):
             ),
         ))
 
-        print('History:')
-        pprint(self.memory.get_buffer())
+        logging.info('History: %s', self.memory.get_buffer())
 
         try:
             response = await GPT4mini.process(

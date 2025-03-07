@@ -1,5 +1,4 @@
 import logging
-from pprint import pprint
 
 from ..memory import BaseMemory
 from ..models.openai.base import BaseGPT, GPTMessage
@@ -69,8 +68,7 @@ class Dialog(BaseDialog):
         await request.discussion.answer(await self.handle_via_gpt())
 
     async def handle_via_gpt(self) -> Message:
-        print('History:')
-        pprint(self.memory.get_buffer())
+        logging.info('History: %s', self.memory.get_buffer())
 
         try:
             response = await self.model.process(
