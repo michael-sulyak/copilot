@@ -10,12 +10,12 @@ def load_prompts_from_files(directory: str) -> list[dict[str, str]]:
     prompts = []
 
     for file_name in sorted(os.listdir(directory)):
-        if not file_name.endswith(('.yaml', '.yml',)):
+        if not file_name.endswith(('.yaml', '.yml')):
             continue
 
         file_path = os.path.join(directory, file_name)
 
-        with open(file_path, 'r') as file:
+        with open(file_path) as file:
             content = file.read().strip()
 
         yaml_data = yaml.safe_load(content)

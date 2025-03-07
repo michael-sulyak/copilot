@@ -24,7 +24,7 @@ class BaseFileProfile(BaseProfile, abc.ABC):
 
     @lru_cache(maxsize=1)
     def get_context(self) -> str:
-        with open(self.file_path, 'r') as file:
+        with open(self.file_path) as file:
             return file.read().strip()
 
 
@@ -39,12 +39,12 @@ def load_profiles_from_files(directory: str) -> dict[str, BaseProfile]:
     profiles = {}
 
     for file_name in sorted(os.listdir(directory)):
-        if not file_name.endswith(('.yaml', '.yml',)):
+        if not file_name.endswith(('.yaml', '.yml')):
             continue
 
         file_path = os.path.join(directory, file_name)
 
-        with open(file_path, 'r') as file:
+        with open(file_path) as file:
             content = file.read().strip()
 
         yaml_data = yaml.safe_load(content)

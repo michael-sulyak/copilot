@@ -1,12 +1,12 @@
 import logging
 from pprint import pprint
 
-from .base import BaseDialog, DialogError, Message, Request
-from .profiles import BaseProfile
 from ..memory import BaseMemory
 from ..models.openai.base import BaseGPT, GPTMessage
-from ..models.openai.constants import GPTRoles, NOTSET
+from ..models.openai.constants import NOTSET, GPTRoles
 from ..utils.file_processor import FileProcessor
+from .base import BaseDialog, DialogError, Message, Request
+from .profiles import BaseProfile
 
 
 class Dialog(BaseDialog):

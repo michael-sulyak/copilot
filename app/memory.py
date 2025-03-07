@@ -52,8 +52,8 @@ class Memory(BaseMemory):
     def get_buffer(self) -> list[GPTMessage]:
         if self._context:
             return [self._context, *self._messages]
-        else:
-            return self._messages
+
+        return self._messages
 
     def clear(self) -> None:
         self._messages.clear()

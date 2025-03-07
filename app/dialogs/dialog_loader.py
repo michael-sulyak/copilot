@@ -1,16 +1,16 @@
 import yaml
 
+from ..memory import Memory
+from ..models.openai.base import AVAILABLE_GPT_MODELS
 from .base import BaseDialog
 from .dalle_chat import DalleDialog
 from .gpt_chat import Dialog
 from .profiles import PROFILES
 from .telegram.dialogs import gen_telegram_folder_reader
-from ..memory import Memory
-from ..models.openai.base import AVAILABLE_GPT_MODELS
 
 
 def load_dialogs_config(path: str) -> dict:
-    with open(path, 'r') as file:
+    with open(path) as file:
         config = yaml.safe_load(file)
 
     return config
@@ -38,17 +38,19 @@ def create_dialog(dialog_data: dict) -> tuple[str, BaseDialog]:
             model=model,
             files_are_supported=files_supported,
         )
-    elif dialog_type == 'dalle':
+
+    if dialog_type == 'dalle':
         return name, DalleDialog()
-    elif dialog_type == 'telegram_folder_reader':
+
+    if dialog_type == 'telegram_folder_reader':
         model = models_map[model_name]()
         extra = dialog_data.get('extra', {})
         return name, gen_telegram_folder_reader(
             gpt_model=model,
             **extra,
         )
-    else:
-        raise ValueError(f'Unknown dialog type: {dialog_type}')
+
+    raise ValueError(f'Unknown dialog type: {dialog_type}')
 
 
 def load_dialogs(path: str) -> dict:

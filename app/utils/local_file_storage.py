@@ -43,7 +43,7 @@ class File:
             with open(self.path, 'rb') as file_io:
                 file_io.read()
             return True
-        except (UnicodeDecodeError, IOError,):
+        except (OSError, UnicodeDecodeError):
             return False
 
     @property

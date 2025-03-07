@@ -27,8 +27,9 @@ class FileProcessor:
             buffer = StringIO()
             file.to_csv(buffer, index=False, header=True)
             return buffer.getvalue()
-        elif self.file.mime_type.startswith('text/') or self.file.is_plain_text:
-            with open(self.file.path, 'r') as file:
+
+        if self.file.mime_type.startswith('text/') or self.file.is_plain_text:
+            with open(self.file.path) as file:
                 return file.read()
 
         raise ValueError(f'Unsupported file type (for {self.file.mime_type})')

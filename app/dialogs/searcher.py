@@ -8,12 +8,12 @@ import html2text
 from duckduckgo_search import DDGS
 from newspaper import Article
 
-from .base import BaseDialog, DialogError, Message, Request
-from .profiles import BaseProfile
 from ..memory import BaseMemory
 from ..models.openai.base import GPT4mini, GPTMessage, GPTResponse
 from ..models.openai.constants import GPTRoles
 from ..utils.common import gen_optimized_json
+from .base import BaseDialog, DialogError, Message, Request
+from .profiles import BaseProfile
 
 
 TPL_PREPARE_ANSWER = """
@@ -59,13 +59,13 @@ class Searcher(BaseDialog):
 
         started_at = datetime.datetime.now()
 
-        await request.discussion.set_text_status(f'Generating query...')
+        await request.discussion.set_text_status('Generating query...')
         query = await self.generate_query(request)
 
         await request.discussion.set_text_status(f'Searching info for "{query.content}"...')
         search_results = await self.find_info(query.content)
 
-        await request.discussion.set_text_status(f'Extracting data...')
+        await request.discussion.set_text_status('Extracting data...')
         extracted_results = await ArticleExtractor().extract_info(tuple(
             result['href']
             for result in search_results

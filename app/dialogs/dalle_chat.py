@@ -1,7 +1,7 @@
 import logging
 
-from .base import BaseDialog, DialogError, Message, Request
 from ..models.openai.base import Dalle
+from .base import BaseDialog, DialogError, Message, Request
 
 
 class DalleDialog(BaseDialog):

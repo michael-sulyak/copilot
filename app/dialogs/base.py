@@ -4,8 +4,8 @@ import datetime
 import time
 import typing
 
-from .constants import Actions, Statuses
 from ..utils.local_file_storage import File
+from .constants import Actions, Statuses
 
 
 if typing.TYPE_CHECKING:
@@ -106,10 +106,10 @@ class Discussion:
         await self._app.notify(text)
 
     async def error(self, text: str) -> None:
-        await self.answer(Message(content=f'**ERROR:**\n```\n{str(text)}\n```'))
+        await self.answer(Message(content=f'**ERROR:**\n```\n{text!s}\n```'))
 
     async def exception(self, e: Exception) -> None:
-        await self.answer(Message(content=f'**UNEXPECTED ERROR:**\n```\n{str(e)}\n```'))
+        await self.answer(Message(content=f'**UNEXPECTED ERROR:**\n```\n{e!s}\n```'))
 
 
 @dataclasses.dataclass

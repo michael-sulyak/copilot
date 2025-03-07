@@ -10,12 +10,13 @@ from telethon.tl.functions.channels import (
     GetForumTopicsRequest,
 )
 from telethon.tl.functions.messages import (
-    GetDialogFiltersRequest, ReadDiscussionRequest,
+    GetDialogFiltersRequest,
+    ReadDiscussionRequest,
 )
 
-from ..base import Discussion, Message
 from ... import config
 from ...utils.common import escape_markdown
+from ..base import Discussion, Message
 
 
 # Note: https://my.telegram.org/apps
@@ -98,11 +99,10 @@ class TelegramMessageExtractor:
             prepared_messages = []
             read_dialog_messages = []
 
-            logging.info((
+            logging.info(
                 f'Reading {channel_title}'
-                + f' ({channel_topic})' if channel_topic is not None else ''
-                                                                          + f'... ({i + 1}/{len(sources)})'
-            ))
+                + f' ({channel_topic})' if channel_topic is not None else f'... ({i + 1}/{len(sources)})',
+            )
 
             if i == 0:
                 await discussion.set_text_status('Reading channel...')
@@ -245,18 +245,17 @@ class TelegramMessageExtractor:
     @staticmethod
     def _is_ad(message: TelegramMessage) -> bool:
         stop_words = {
-            '#реклама'
+            '#реклама',
         }
 
         for stop_word in stop_words:
             if isinstance(stop_word, str):
                 if stop_word in message.text:
                     return True
-            else:
-                if all(
-                    (stop_word_part in message.text)
-                    for stop_word_part in stop_word
-                ):
-                    return True
+            elif all(
+                (stop_word_part in message.text)
+                for stop_word_part in stop_word
+            ):
+                return True
 
         return False

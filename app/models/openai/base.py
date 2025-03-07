@@ -11,10 +11,10 @@ from openai import APIConnectionError, AsyncOpenAI
 from openai.lib.azure import AsyncAzureOpenAI
 from openai.types.chat import ChatCompletion
 
-from .constants import GPTContentTypes, GPTFuncParamTypes, GPTRoles, NOTSET
-from .utils import num_tokens_from_messages
 from ... import config
 from ...utils.common import chunk_generator
+from .constants import NOTSET, GPTContentTypes, GPTFuncParamTypes, GPTRoles
+from .utils import num_tokens_from_messages
 
 
 @dataclasses.dataclass(frozen=True)
@@ -33,13 +33,13 @@ class OpenAiConfig:
             has_custom_credentials = bool(
                 self.api_key
                 and self.api_version
-                and self.azure_deployment
+                and self.azure_deployment,
             )
         else:
             has_openai_credentials = bool(
                 self.api_key
                 and not self.api_version
-                and not self.azure_deployment
+                and not self.azure_deployment,
             )
 
         return has_openai_credentials or has_custom_credentials
@@ -80,11 +80,11 @@ class GPTResponse:
                 name=self.func_call.name,
                 content=json.dumps(self.func_call.args),
             )
-        else:
-            return GPTMessage(
-                role=GPTRoles.ASSISTANT,
-                content=self.content,
-            )
+
+        return GPTMessage(
+            role=GPTRoles.ASSISTANT,
+            content=self.content,
+        )
 
 
 @dataclasses.dataclass(frozen=True)

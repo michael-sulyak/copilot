@@ -6,8 +6,8 @@ import typing
 from io import BytesIO
 
 import tiktoken
-from PIL import Image
 from openai.types.chat import ChatCompletionMessageParam
+from PIL import Image
 from tiktoken.model import MODEL_TO_ENCODING
 from tiktoken.registry import get_encoding
 
@@ -51,8 +51,8 @@ def encoding_for_model(model: str, default_to_cl100k=False) -> tiktoken.Encoding
         if default_to_cl100k:
             logging.warning('Model %s not found, defaulting to CL100k encoding', model)
             return tiktoken.get_encoding('cl100k_base')
-        else:
-            raise
+
+        raise
 
 
 def num_tokens_from_messages(messages: typing.Sequence[ChatCompletionMessageParam], model: str,
@@ -120,8 +120,8 @@ def get_image_dims(image_uri: str) -> tuple[int, int]:
         image_uri = re.sub(r'data:image\/\w+;base64,', '', image_uri)
         image = Image.open(BytesIO(base64.b64decode(image_uri)))
         return image.size
-    else:
-        raise ValueError('Image must be a base64 string.')
+
+    raise ValueError('Image must be a base64 string.')
 
 
 def count_tokens_for_image(image_uri: str, detail: str = 'auto') -> int:
@@ -138,7 +138,8 @@ def count_tokens_for_image(image_uri: str, detail: str = 'auto') -> int:
     if detail == 'low':
         # Low detail images have a fixed cost
         return LOW_DETAIL_COST
-    elif detail == 'high':
+
+    if detail == 'high':
         # Calculate token cost for high detail images
         width, height = get_image_dims(image_uri)
         # Check if resizing is needed to fit within a 2048 x 2048 square
@@ -157,6 +158,6 @@ def count_tokens_for_image(image_uri: str, detail: str = 'auto') -> int:
         # Calculate the total token cost
         total_cost = num_squares * HIGH_DETAIL_COST_PER_TILE + ADDITIONAL_COST
         return total_cost
-    else:
-        # Invalid detail_option
-        raise ValueError('Invalid value for detail parameter. Use "low" or "high".')
+
+    # Invalid detail_option
+    raise ValueError('Invalid value for detail parameter. Use "low" or "high".')

@@ -30,9 +30,9 @@ def timeit(name: str) -> typing.Iterator:
         logging.info(f'{name} took {finished_at - started_at}')
 
 
-def cosine_similarity(a: typing.List[float], b: typing.List[float]) -> float:
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     return round(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)), 4)
 
 
 def gen_optimized_json(obj: typing.Any) -> str:
-    return json.dumps(obj, ensure_ascii=False, separators=(',', ':',))
+    return json.dumps(obj, ensure_ascii=False, separators=(',', ':'))

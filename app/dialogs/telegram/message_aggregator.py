@@ -4,11 +4,11 @@ import logging
 import typing
 from functools import cached_property
 
-from .message_extractor import TelegramMessageExtractor
-from ..base import AnswerBtn, Discussion, Message
 from ...models.openai.base import BaseGPT, GPTMessage, GPTResponse
 from ...models.openai.constants import GPTBehaviour, GPTRoles
 from ...utils.common import escape_markdown, gen_optimized_json
+from ..base import AnswerBtn, Discussion, Message
+from .message_extractor import TelegramMessageExtractor
 
 
 @dataclasses.dataclass
@@ -17,7 +17,7 @@ class MessageGroup(abc.ABC):
     titles: tuple[str, ...]
     additional_context: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
 
-    def __eq__(self, other: typing.Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         return isinstance(other, MessageGroup) and self.id == other.id
 
 
@@ -34,14 +34,14 @@ class TelegramMessageAggregator:
         gpt_model: BaseGPT,
         message_extractor: TelegramMessageExtractor,
         prompt_for_aggregation: str,
-        grouping: typing.Optional[typing.Callable] = None
+        grouping: typing.Callable | None = None,
     ) -> None:
         self._message_extractor = message_extractor
         self._gpt_model = gpt_model
         self._is_inited = False
         self._prompt_for_aggregation = prompt_for_aggregation
         self._grouping = grouping
-        self._unprocessed_message_iter: typing.Optional[typing.Iterator] = None
+        self._unprocessed_message_iter: typing.Iterator | None = None
 
     async def init(self) -> None:
         if not self._is_inited:
@@ -85,7 +85,7 @@ class TelegramMessageAggregator:
             await discussion.set_text_status(f'Processing last chunk ({len(chunk)} messages)...')
             yield await self._process_chunk(chunk, prev_group)
 
-    async def _iter_messages(self, *, discussion: Discussion) -> typing.AsyncIterator[typing.Dict[str, typing.Any]]:
+    async def _iter_messages(self, *, discussion: Discussion) -> typing.AsyncIterator[dict[str, typing.Any]]:
         if self._unprocessed_message_iter is not None:
             unprocessed_messages_iter = self._unprocessed_message_iter
             self._unprocessed_message_iter = None
@@ -110,7 +110,7 @@ class TelegramMessageAggregator:
         return self._prompt_for_aggregation.format(posts=gen_optimized_json(data), **group.additional_context)
 
     @staticmethod
-    def _prepare_message(message: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.Any]:
+    def _prepare_message(message: dict[str, typing.Any]) -> dict[str, typing.Any]:
         text_size_limit = 3_000
         text = message['text']
 
@@ -121,7 +121,7 @@ class TelegramMessageAggregator:
         }
 
     @staticmethod
-    def _prepare_answer_for_gpt_response(group: typing.Optional[MessageGroup], gpt_response: GPTResponse) -> Message:
+    def _prepare_answer_for_gpt_response(group: MessageGroup | None, gpt_response: GPTResponse) -> Message:
         content = gpt_response.content
 
         if group:

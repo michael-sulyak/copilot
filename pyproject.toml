@@ -26,6 +26,7 @@ pandas = "^2.2.3"
 openpyxl = "^3.1.5"
 python-magic = "^0.4.27"
 jinja2 = "^3.1.5"
+ruff = "^0.9.10"
 
 
 [build-system]

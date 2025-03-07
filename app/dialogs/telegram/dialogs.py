@@ -1,11 +1,11 @@
 import logging
 import typing
 
-from .message_aggregator import MessageGroup, TelegramMessageAggregator
-from .message_extractor import TelegramMessageExtractor
-from ..base import AnswerBtn, BaseDialog, Message, Request
 from ...models.openai.base import BaseGPT
 from ...utils.common import escape_markdown
+from ..base import AnswerBtn, BaseDialog, Message, Request
+from .message_aggregator import MessageGroup, TelegramMessageAggregator
+from .message_extractor import TelegramMessageExtractor
 
 
 class TelegramMessageDialog(BaseDialog):
@@ -71,8 +71,8 @@ def gen_telegram_folder_reader(
             ),
             prompt_for_aggregation=prompt_for_aggregation,
             grouping=lambda x: MessageGroup(
-                id=(x['source']['channel_title'], x['source']['channel_topic'],),
-                titles=(x['source']['channel_title'], x['source']['channel_topic'],),
+                id=(x['source']['channel_title'], x['source']['channel_topic']),
+                titles=(x['source']['channel_title'], x['source']['channel_topic']),
                 additional_context={
                     'channel_name': x['source']['channel_title'],
                     'channel_topic': x['source']['channel_topic'],
