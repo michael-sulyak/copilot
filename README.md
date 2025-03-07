@@ -3,7 +3,7 @@
 ![Copilot](./poster.png)
 
 > [!NOTE]
-> This repository contains an experimental copilot that integrates multiple AI models. Its primary function is a chat interface, with plans to expand its capabilities in the rapidly evolving AI field. Note that this project is a work in progress—features may be added or removed as the project evolves.
+> This repository contains an experimental copilot that integrates multiple AI models. Its primary function is a chat interface, with plans to expand its capabilities in the rapidly evolving AI field. **Note that this project is a work in progress—features may be added or removed as the project evolves.**
 
 ## To Do
 
