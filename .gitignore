@@ -160,9 +160,10 @@ cython_debug/
 .idea/
 
 # Other
-./bot.session
-./bot.session-journal
-./app/models/openai/resources/tiktoken_cache
-./logs.txt
-./copilot_m.desktop
-./run.sh
+bot.session
+bot.session-journal
+app/models/openai/resources/tiktoken_cache/
+logs.txt
+copilot_m.desktop
+run.sh
+envs
