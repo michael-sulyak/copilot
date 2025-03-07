@@ -8,7 +8,6 @@ import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {darcula as SyntaxHighlighterTheme} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import {visit} from 'unist-util-visit'
 
-
 function rehypeInlineCodeProperty() {
     return function (tree) {
         visit(tree, 'element', function (node, index, parent) {
@@ -67,6 +66,5 @@ function Markdown({content}) {
         />
     )
 }
-
 
 export default React.memo(Markdown)
