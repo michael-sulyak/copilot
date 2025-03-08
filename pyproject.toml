@@ -1,10 +1,9 @@
 [tool.poetry]
-name = "jarvis-v2"
-version = "0.1.0"
+name = "Copilot"
+version = "1.0.0"
 description = ""
 authors = ["Michael"]
 readme = "README.md"
-packages = [{ include = "jarvis_v2" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
