@@ -75,6 +75,7 @@ Edit the environment variables to set the following parameters:
 ## Chat Configuration Examples
 
 The chat functionality can be tailored by setting up custom prompt and profile configurations. Below are two sample examples that you can modify as needed.
+You can rename folder `example_of_configs` to `configs` and check how it works. 
 
 ### Example prompt: Text improvement
 
@@ -101,9 +102,8 @@ This sample prompt is designed for a text improvement scenario. It instructs the
     Here is the text to review:
     {your_text}
   ```
-  
-Or without versions:
 
+Or without versions:
 
   ```yaml
   name: "Text Improvement Prompt"

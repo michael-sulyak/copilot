@@ -1,0 +1,13 @@
+name: "Editorial review ({{ short_lang }})"
+
+versions:
+  - lang: "English"
+    short_lang: "EN"
+  - lang: "Chinese"
+    short_lang: "CN"
+
+prompt: |
+  Envision yourself as an editor tasked with reviewing texts before they are published. Your primary responsibilities include identifying and rectifying any spelling errors, grammatical mistakes, or other issues within the provided {{ lang }} text:
+  ```
+  {your_text}
+  ```

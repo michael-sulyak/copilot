@@ -1,0 +1,69 @@
+dialogs:
+  - name: "Chat (GPT-3 mini)"
+    type: "chat"
+    profile: "personal"
+    model: "GPTo3 mini"
+    memory:
+      max_user_messages: 20
+    files_supported: true
+
+  - name: "Chat (GPT-4o)"
+    type: "chat"
+    profile: "personal"
+    model: "GPT4o"
+    memory:
+      max_user_messages: 20
+    files_supported: true
+
+  - name: "DALL·E"
+    type: "dalle"
+
+  - name: "News Reader"
+    type: "telegram_folder_reader"
+    model: "GPT4o mini"
+    extra:
+      folder_name: "News"
+      prompt_for_aggregation: |
+        I have a collection of news articles from a channel. Your task is to categorize these articles, 
+        summarise the key points from each category, and compile a report using valid Markdown syntax.
+        
+        Please note, there are sources that contain books and links to interesting projects. List them separately.
+        
+        Channel name: {channel_name}
+        Channel topic: {channel_topic}
+        
+        The collection of news articles is as follows:
+        ```json
+        {posts}
+        ```
+        
+        ---
+        
+        In your response, please adhere to the following guidelines:
+        
+        1. Write the report in English language.
+        2. Use valid Markdown syntax for structuring the report.
+        3. Include the source of the information next to each summarised news.
+        4. Exclude any advertisements or job vacancies from the report.
+        
+        Below is a sample structure for the report:
+        
+        ```
+        # Topic 1
+        
+        * Event 1
+        https://source_1.link
+        
+        * Event 2
+        https://source_2.link
+        
+        # Topic 2
+        
+        * Event 1
+        https://source_3.link
+        
+        # Topic 3
+        
+        * Book 1
+        https://source_4.link
+        ```
