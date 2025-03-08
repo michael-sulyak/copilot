@@ -97,8 +97,13 @@ function Footer({
     const handlePaste = useCallback(
         (event) => {
             if (event.clipboardData) {
-                handleFilesFromEvent({event, dataSource: event.clipboardData, onFileUpload})
-                event.preventDefault()
+                const items = Array.from(event.clipboardData.items)
+                const hasFile = items.some((item) => item.kind === 'file')
+
+                if (hasFile) {
+                    handleFilesFromEvent({event, dataSource: event.clipboardData, onFileUpload})
+                    event.preventDefault()
+                }
             }
         },
         [onFileUpload]
