@@ -101,6 +101,8 @@ class DesktopApp:
         self.runner = web.AppRunner(app)
         await self.runner.setup()
 
+        os.system(f'kill -2 `lsof -t -i:{config.PORT}`')
+
         site = web.TCPSite(self.runner, config.HOST_NAME, port=config.PORT)
 
         await site.start()
