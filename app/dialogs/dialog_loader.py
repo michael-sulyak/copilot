@@ -7,6 +7,7 @@ from ..models.openai.base import AVAILABLE_GPT_MODELS
 from .base import BaseDialog
 from .dalle_chat import DalleDialog
 from .gpt_chat import Dialog
+from .greetings import GreetingsDialog
 from .profiles import PROFILES
 from .telegram.dialogs import gen_telegram_folder_reader
 
@@ -53,6 +54,9 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
 
     if dialog_type == 'dalle':
         return name, DalleDialog()
+
+    if dialog_type == 'greetings':
+        return name, GreetingsDialog()
 
     if dialog_type == 'telegram_folder_reader':
         model = models_map[model_name]()

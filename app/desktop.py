@@ -48,7 +48,6 @@ class DesktopApp:
 
         self.dialogs_map = load_dialogs(config.DIALOGS_PATH)
 
-        await self.activate_dialog(next(iter(self.dialogs_map.keys())))
 
     async def start(self) -> None:
         logging.info('Staring...')
@@ -161,6 +160,9 @@ class DesktopApp:
             await self.active_dialog.clear_history()
 
     async def get_settings(self) -> dict:
+        if self.active_dialog is None:
+            await self.activate_dialog(next(iter(self.dialogs_map.keys())))
+
         return {
             'dialogs': [
                 {
