@@ -14,7 +14,7 @@ run_gui:
 
 install_deps:
 	npm install --prefix gui
-	poetry install
+	poetry install --with webview
 
 run_server:
 	poetry run python main.py
