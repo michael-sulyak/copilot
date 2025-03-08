@@ -1,4 +1,7 @@
 dialogs:
+  - name: "Hello"
+    type: "greetings"
+
   - name: "Chat (GPT-3 mini)"
     type: "chat"
     profile: "personal"
