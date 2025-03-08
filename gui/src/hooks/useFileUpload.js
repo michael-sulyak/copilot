@@ -92,7 +92,7 @@ function useFileUpload({addNotification, updateChatState}) {
                 }))
 
                 await setAttachedFiles((prevFiles) => [...prevFiles, ...newFiles])
-                await addNotification(`Uploaded ${validFiles.map((file) => file.name).join(', ')}`)
+                // await addNotification(`Uploaded ${validFiles.map((file) => file.name).join(', ')}`)
             },
         })
     }
