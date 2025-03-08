@@ -51,7 +51,7 @@ jobs:
           fi
 
       - name: Upload AppImage Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Copilot.AppImage
           path: Copilot.AppImage
