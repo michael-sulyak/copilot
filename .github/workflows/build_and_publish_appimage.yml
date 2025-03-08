@@ -42,7 +42,13 @@ jobs:
           curl -sSL https://install.python-poetry.org | python3 -
           echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Dependencies
+      - name: Cache Node.js modules
+        uses: actions/cache@v3
+        with:
+          path: gui/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('gui/package-lock.json', 'gui/package.json') }}
+
+      - name: Install dependencies
         run: make install_deps
 
       - name: Build AppImage
@@ -50,19 +56,19 @@ jobs:
 
       - name: Verify AppImage exists
         run: |
-          if [ ! -f "Copilot.AppImage" ]; then
-            echo "Error: Copilot.AppImage not found!"
+          if [ ! -f "Copilot-x86_64.AppImage" ]; then
+            echo "Error: Copilot-x86_64.AppImage not found!"
             exit 1
           fi
 
-      - name: Upload AppImage Artifact
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Copilot.AppImage
-          path: Copilot.AppImage
+          name: Copilot-x86_64.AppImage
+          path: Copilot-x86_64.AppImage
 
-      - name: Publish AppImage to GitHub Releases
+      - name: Publish AppImage to GitHub releases
         if: ${{ github.event_name == 'release' }}
         uses: ncipollo/release-action@v1
         with:
-          artifacts: Copilot.AppImage
+          artifacts: Copilot-x86_64.AppImage
