@@ -36,8 +36,10 @@ if OPENROUTER_API_KEY:
     if not OPENAI_BASE_URL:
         OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
 
-os.environ['TIKTOKEN_CACHE_DIR'] = get_config_value('tiktoken_cache_dir',
-                                                    './app/models/openai/resources/tiktoken_cache')
+os.environ['TIKTOKEN_CACHE_DIR'] = get_config_value(
+    'tiktoken_cache_dir',
+    './app/models/openai/resources/tiktoken_cache',
+)
 
 TELEGRAM_API_ID = get_config_value('telegram_api_id')
 TELEGRAM_API_HASH = get_config_value('telegram_api_hash')

@@ -1,7 +1,7 @@
 import {useCallback, useRef, useState} from 'react'
 import {getTimestampNs} from '../utils'
 
-function useAudioRecording({addNotification, inputValue, setInputValue, uploadFiles, updateChatState}) {
+function useAudioRecording({addNotification, inputValue, setInputValue, uploadFiles, updateChatState, processRpcError}) {
     const [recordingState, setRecordingState] = useState({status: 'off'})
     const mediaRecorderRef = useRef(null)
 
@@ -46,7 +46,7 @@ function useAudioRecording({addNotification, inputValue, setInputValue, uploadFi
                     const uploadedFiles = parsedResponse.files
 
                     await updateChatState({text: 'Processing audio...', timestamp: getTimestampNs()})
-                    const result = await rpcClient.call('process_audio', [uploadedFiles[0].id])
+                    const result = await rpcClient.call('process_audio', [uploadedFiles[0].id]).catch(processRpcError)
 
                     setRecordingState({status: 'off'})
                     await updateChatState({text: null, timestamp: getTimestampNs()})
@@ -61,7 +61,7 @@ function useAudioRecording({addNotification, inputValue, setInputValue, uploadFi
         }
 
         mediaRecorder.start()
-    }, [inputValue, updateChatState, recordingState, addNotification, setInputValue, uploadFiles])
+    }, [processRpcError, inputValue, updateChatState, recordingState, addNotification, setInputValue, uploadFiles])
 
     const stopRecording = useCallback(async () => {
         if (mediaRecorderRef.current && recordingState.status === 'on') {

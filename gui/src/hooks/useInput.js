@@ -1,7 +1,17 @@
 import {useCallback, useEffect, useState} from 'react'
 import {needToTurnOnVPN} from '../utils'
 
-function useChatState({textareaRef, chatBodyRef, addNotification, attachedFiles, clearFiles, chatState, updateChatState, setMessages}) {
+function useChatState({
+    textareaRef,
+    chatBodyRef,
+    addNotification,
+    attachedFiles,
+    clearFiles,
+    chatState,
+    updateChatState,
+    setMessages,
+    processRpcError,
+}) {
     const [inputValue, setInputValue] = useState('')
     const [isWaitingAnswer, setIsWaitingAnswer] = useState(false)
     const [userInteractionTrigger, setUserInteractionTrigger] = useState(null)
@@ -48,7 +58,7 @@ function useChatState({textareaRef, chatBodyRef, addNotification, attachedFiles,
         return () => {
             rpcClient.off('process_message')
         }
-    }, [setNeedToScrollChat, updateChatState, userInteractionTrigger, chatState, setMessages, setUserInteractionTrigger])
+    }, [setNeedToScrollChat, updateChatState, userInteractionTrigger, chatState, setMessages, setUserInteractionTrigger, processRpcError])
 
     useEffect(() => {
         updateTextareaHeight()
@@ -90,11 +100,12 @@ function useChatState({textareaRef, chatBodyRef, addNotification, attachedFiles,
         await setUserInteractionTrigger(true)
         await setNeedToScrollChat(true)
 
-        await rpcClient.call('process_message', [preparedMessage])
+        await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
 
         await clearFiles()
         await setIsWaitingAnswer(false)
     }, [
+        processRpcError,
         setNeedToScrollChat,
         addNotification,
         textareaRef,
@@ -112,14 +123,14 @@ function useChatState({textareaRef, chatBodyRef, addNotification, attachedFiles,
             await updateChatState({status: 'loading'})
             const preparedMessage = {from: 'user', body: {callback: callbackPayload}}
             try {
-                const response = await rpcClient.call('process_message', [preparedMessage])
+                const response = await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
                 response && setMessages((prev) => [...prev, response])
             } catch (err) {
                 addNotification('Error processing callback: ' + err)
             }
             await updateChatState({status: 'idle'})
         },
-        [setMessages, updateChatState, addNotification]
+        [processRpcError, setMessages, updateChatState, addNotification]
     )
 
     useEffect(() => {

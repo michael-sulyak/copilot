@@ -1,18 +1,19 @@
 import {useCallback, useEffect, useState} from 'react'
 
-function useSettings({addNotification}) {
+function useSettings({addNotification, processRpcError}) {
     const [settings, setSettings] = useState({})
-    const rpcClient = window.rpcClient
 
     const getSettings = useCallback(async () => {
+        const rpcClient = window.rpcClient
+
         try {
-            const newSettings = await rpcClient.call('get_settings', [])
+            const newSettings = await rpcClient.call('get_settings', []).catch(processRpcError)
             setSettings(newSettings)
             console.log('Settings:', newSettings)
         } catch (err) {
             addNotification('Error fetching settings: ' + err)
         }
-    }, [rpcClient, addNotification])
+    }, [addNotification, processRpcError])
 
     useEffect(() => {
         getSettings()

@@ -175,7 +175,11 @@ class DesktopApp:
         await self.clear_dialog()
 
         if isinstance(self.dialogs_map[dialog_name], LazyDialog):
-            self.dialogs_map[dialog_name] = self.dialogs_map[dialog_name]()
+            try:
+                self.dialogs_map[dialog_name] = self.dialogs_map[dialog_name]()
+            except Exception as e:
+                await self.notify(f'Failed to activate dialog "{dialog_name}":\n{e}')
+                raise
 
         self.active_dialog = self.dialogs_map[dialog_name]
 

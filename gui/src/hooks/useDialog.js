@@ -1,13 +1,13 @@
 import {useCallback, useEffect} from 'react'
 
-function useDialog({updateChatState, setMessages, clearFiles, getSettings}) {
+function useDialog({updateChatState, setMessages, clearFiles, getSettings, processRpcError}) {
     const getHistory = useCallback(async () => {
         const rpcClient = window.rpcClient
-        const history = await rpcClient.call('get_history', [])
+        const history = await rpcClient.call('get_history', []).catch(processRpcError)
         console.log('History:')
         console.log(history)
         setMessages(history)
-    }, [setMessages])
+    }, [setMessages, processRpcError])
 
     const activateDialog = useCallback(
         async (dialogName) => {
@@ -15,11 +15,11 @@ function useDialog({updateChatState, setMessages, clearFiles, getSettings}) {
             await updateChatState({status: 'loading', text: null})
             await setMessages([])
             await clearFiles()
-            await rpcClient.call('activate_dialog', [dialogName])
+            await rpcClient.call('activate_dialog', [dialogName]).catch(processRpcError)
             await getSettings()
             await updateChatState({status: 'idle', text: null})
         },
-        [updateChatState, setMessages, getSettings, clearFiles]
+        [updateChatState, setMessages, getSettings, clearFiles, processRpcError]
     )
 
     const clearDialog = useCallback(async () => {

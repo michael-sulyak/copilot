@@ -1,4 +1,4 @@
-import React, {Fragment, useRef, useState} from 'react'
+import React, {Fragment, useCallback, useEffect, useRef, useState} from 'react'
 import {Card, ToastContainer} from 'react-bootstrap'
 import Header from './components/Header'
 import Message from './components/Message'
@@ -18,9 +18,30 @@ function Chat() {
     const fileInputRef = useRef(null)
     const [messages, setMessages] = useState([])
     const {notifications, addNotification, removeNotification} = useNotifications()
-    const {settings, getSettings} = useSettings({addNotification})
+    useEffect(() => {
+        const rpcClient = window.rpcClient
+
+        rpcClient.on('show_notification', (message) => {
+            addNotification(message)
+        })
+
+        return () => {
+            rpcClient.off('show_notification')
+        }
+    }, [addNotification])
+    const processRpcError = useCallback(
+        async (response) => {
+            console.error(response)
+            await addNotification(`**${response.message}**\n\n${response?.data?.traceback_exception?.slice(-2)}\n\n(See logs)`)
+        },
+        [addNotification]
+    )
+    const {settings, getSettings} = useSettings({addNotification, processRpcError})
     const {chatState, updateChatState} = useChatState()
-    const {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({addNotification, updateChatState})
+    const {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({
+        addNotification,
+        updateChatState,
+    })
     const {inputValue, setInputValue, sendMessage, callButtonCallback, isWaitingAnswer, handleInputChange} = useInput({
         textareaRef,
         addNotification,
@@ -38,12 +59,14 @@ function Chat() {
         chatState,
         uploadFiles,
         updateChatState,
+        processRpcError,
     })
     const {activateDialog, clearDialog} = useDialog({
         updateChatState,
         setMessages,
         clearFiles,
         getSettings,
+        processRpcError,
     })
 
     const activeDialog = settings.dialogs && settings.dialogs.find((dialog) => dialog.is_active)
