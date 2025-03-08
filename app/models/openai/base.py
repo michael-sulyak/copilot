@@ -19,6 +19,7 @@ from .utils import num_tokens_from_messages
 
 @dataclasses.dataclass(frozen=True)
 class OpenAiConfig:
+    base_url: str | None = None
     api_key: str | None = None
     api_version: str | None = None
     azure_endpoint: str | None = None
@@ -55,6 +56,7 @@ class OpenAiConfig:
             )
         else:
             client = AsyncOpenAI(
+                base_url=self.base_url,
                 api_key=self.api_key,
             )
 
@@ -380,6 +382,7 @@ class BaseGPT:
 
 OPENAI_CONFIG = OpenAiConfig(
     api_key=config.OPENAI_API_KEY,
+    base_url=config.OPENAI_BASE_URL,
 )
 
 

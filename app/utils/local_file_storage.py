@@ -32,8 +32,8 @@ class File:
         with open(self.path, 'rb') as file_io:
             try:
                 mime_type = mime.from_buffer(file_io.read())
-            except magic.MagicException:
-                raise ValueError(f'Could not detect file type for "{self.name}"')
+            except magic.MagicException as e:
+                raise ValueError(f'Could not detect file type for "{self.name}"') from e
 
         return mime_type
 
@@ -42,9 +42,10 @@ class File:
         try:
             with open(self.path, 'rb') as file_io:
                 file_io.read()
-            return True
         except (OSError, UnicodeDecodeError):
             return False
+        else:
+            return True
 
     @property
     def is_image(self) -> bool:
