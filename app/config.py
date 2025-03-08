@@ -1,9 +1,17 @@
 import os
+import shutil
 
 import yaml
 
 
-BASE_CONFIG_PATH = os.getenv('BASE_CONFIG_PATH', './configs/base.yaml')
+CONFIGS_DIR = os.getenv('CONFIGS_DIR', './configs')
+STATICS_DIR = os.getenv('STATICS_DIR', './gui/build')
+BASE_CONFIG_PATH = os.path.join(CONFIGS_DIR, 'base.yaml')
+INIT_CONFIGS_DIR = os.getenv('INIT_CONFIGS_DIR', './demo_configs/')
+LOG_FILE = os.getenv('LOG_FILE', './logs.txt')
+
+if INIT_CONFIGS_DIR and not os.path.isdir(CONFIGS_DIR):
+    shutil.copytree(INIT_CONFIGS_DIR, CONFIGS_DIR)
 
 
 def load_yaml_config(file_path=BASE_CONFIG_PATH):
@@ -47,12 +55,12 @@ GOOGLE_APP_ID = get_config_value('google_app_id')
 
 DEBUG_COPILOT = get_config_value('debug_copilot', False)
 DEV_MODE = get_config_value('dev_mode', False)
+USE_WEBVIEW = get_config_value('use_webview', False)
 
 HOST_NAME = get_config_value('host_name', 'localhost')
 PORT = int(get_config_value('port', 8123))
 
 UPLOADS_DIR = get_config_value('uploads_dir', '/tmp')
-CONFIGS_DIR = get_config_value('prompts_dir', './configs')
 PROFILES_DIR = os.path.join(CONFIGS_DIR, 'profiles')
 PROMPTS_DIR = os.path.join(CONFIGS_DIR, 'prompts')
 DIALOGS_PATH = os.path.join(CONFIGS_DIR, 'dialogs.yaml')

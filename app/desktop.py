@@ -84,7 +84,7 @@ class DesktopApp:
             web.get('/rpc', self.rpc_server.handle_http_request),
             web.post('/upload-file', self.handle_file_upload),
         ))
-        app.router.add_static('/', path='./gui/build', name='static')
+        app.router.add_static('/', path=config.STATICS_DIR, name='static')
         app.on_shutdown.append(self.rpc_server.on_shutdown)
 
         cors = aiohttp_cors.setup(app, defaults={
@@ -112,13 +112,18 @@ class DesktopApp:
 
         url = f'http://{config.HOST_NAME}:{config.PORT}/'
 
-        proc = await asyncio.create_subprocess_exec(
-            'google-chrome',
-            f'--app-id={self.google_app_id}' if self.google_app_id else f'--app={url}',
-            '--disable-http-cache',
-        )
+        if config.USE_WEBVIEW:
+            from .webview import run_webview
 
-        await proc.communicate()
+            await run_webview(url)
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                'google-chrome',
+                f'--app-id={self.google_app_id}' if self.google_app_id else f'--app={url}',
+                '--disable-http-cache',
+            )
+
+            await proc.communicate()
 
     async def wait(self) -> NoReturn:
         logging.info('Waiting...')
@@ -255,7 +260,8 @@ class DesktopApp:
             if not self.dev_mode:
                 await self.run_browser()
 
-            await self.wait()
+            if not config.USE_WEBVIEW:
+                await self.wait()
         finally:
             await self.clean()
 

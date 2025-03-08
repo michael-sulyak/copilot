@@ -1,17 +1,22 @@
 import asyncio
 import logging
+import subprocess
 
 from app import config
 from app.desktop import DesktopApp
 
 
-logging_handlers = (
+logging_handlers = [
     logging.StreamHandler(),
-    logging.FileHandler(
-        'logs.txt',
-        mode='w',
-    ),
-)
+]
+
+if config.LOG_FILE:
+    logging_handlers.append(
+        logging.FileHandler(
+            config.LOG_FILE,
+            mode='w',
+        ),
+    )
 
 logging_formatter = logging.Formatter(
     '%(asctime)s;%(levelname)s;%(message)s',
@@ -35,8 +40,11 @@ async def main() -> None:
         )
         await app.run()
     except Exception as e:
-        import subprocess
-        subprocess.run(['/usr/bin/notify-send', '--icon=error', f'Occurred unexpected error (check logs):\n{e}'], check=False)
+        subprocess.run(
+            ['/usr/bin/notify-send', '--icon=error', f'Occurred unexpected error (check logs):\n{e}'],
+            check=False,
+        )
+
         raise
 
 

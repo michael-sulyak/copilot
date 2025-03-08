@@ -73,7 +73,7 @@ function useFileUpload({addNotification, updateChatState}) {
         console.log(files)
 
         if (validFiles.length !== files.length) {
-            await addNotification(`Some files were not uploaded due to size.\n` + `Max size: ${MAX_FILE_SIZE / 1024 / 1024}.`)
+            await addNotification(`Some files were not uploaded due to size.\nMax size: ${MAX_FILE_SIZE / 1024 / 1024} Mb.`)
             return
         }
 

@@ -30,9 +30,13 @@ create_desktop_icon:
 	@echo "Generating copilot_m.desktop..."
 	@printf "[Desktop Entry]\nType=Application\nName=Copilot\nTerminal=false\nExec=\"%s/run.sh\"\nIcon=%s/gui/public/icon.png\n" "$(CURDIR)" "$(CURDIR)" > copilot_m.desktop
 
+add_desktop_icon: create_desktop_icon
 	@echo "Copying copilot_m.desktop to ~/.local/share/applications/..."
 	@cp copilot_m.desktop ~/.local/share/applications/
 	@chmod +x ~/.local/share/applications/copilot_m.desktop
 	@echo "Desktop icon has been installed."
 
 install: prepare create_desktop_icon
+
+build_appimage:
+	./scripts/build_appimage.sh

@@ -161,3 +161,8 @@ def count_tokens_for_image(image_uri: str, detail: str = 'auto') -> int:
 
     # Invalid detail_option
     raise ValueError('Invalid value for detail parameter. Use "low" or "high".')
+
+
+def prepare_gpt_response_content(content: str) -> str:
+    content = content.replace('\u2003', '\t')
+    return content

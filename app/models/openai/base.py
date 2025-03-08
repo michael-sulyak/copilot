@@ -15,7 +15,7 @@ from openai.types.chat import ChatCompletion
 from ... import config
 from ...utils.common import chunk_generator
 from .constants import NOTSET, GPTContentTypes, GPTFuncParamTypes, GPTRoles
-from .utils import num_tokens_from_messages
+from .utils import num_tokens_from_messages, prepare_gpt_response_content
 
 
 @dataclasses.dataclass(frozen=True)
@@ -350,7 +350,7 @@ class BaseGPT:
             gpt_func_call = None
 
         return GPTResponse(
-            content=response.choices[0].message.content,
+            content=prepare_gpt_response_content(response.choices[0].message.content),
             func_call=gpt_func_call,
             duration=processing_time,
             cost=cost,

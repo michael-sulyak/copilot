@@ -5,7 +5,7 @@ telegram_api_hash:
 google_app_id:
 debug_copilot: false
 dev_mode: false
+use_webview: false
 host_name: "localhost"
 port: 8123
 uploads_dir: "/tmp"
-prompts_dir: "./configs"
