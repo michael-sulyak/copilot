@@ -2,7 +2,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
 
 /* Global Styles */
-html, body, #root {
+html,
+body,
+#root {
     height: 100%;
     margin: 0;
     padding: 0;
@@ -34,7 +36,10 @@ html, body, #root {
     font-weight: lighter;
 }
 
-.btn, .card-header ul, button, .toast {
+.btn,
+.card-header ul,
+button,
+.toast {
     font-weight: lighter;
 }
 
@@ -65,14 +70,16 @@ html, body, #root {
     border: 0;
 }
 
-.chat-header .btn, .chat-header .btn:focus {
+.chat-header .btn,
+.chat-header .btn:focus {
     border: 1px solid var(--white01);
     border-radius: var(--box-radius);
     background: var(--secondary-color);
     color: var(--text-color);
 }
 
-.chat-header .btn:hover, .chat-header .btn:focus-visible {
+.chat-header .btn:hover,
+.chat-header .btn:focus-visible {
     background: var(--white005);
 }
 
@@ -206,7 +213,8 @@ html, body, #root {
     border: 0;
 }
 
-.chat-footer textarea:focus, .chat-footer .form-control:disabled {
+.chat-footer textarea:focus,
+.chat-footer .form-control:disabled {
     background: var(--tertiary-color);
     color: var(--text-color);
     box-shadow: none;
@@ -250,7 +258,7 @@ html, body, #root {
     color: var(--white05);
 }
 
-.chat-footer button[type="submit"] {
+.chat-footer button[type='submit'] {
     border-radius: 0;
     background: var(--tertiary-color);
     margin-left: 0 !important;
@@ -258,13 +266,16 @@ html, body, #root {
     border: 0;
 }
 
-.chat-footer button[type="submit"]:focus, .chat-footer button[type="submit"]:active {
+.chat-footer button[type='submit']:focus,
+.chat-footer button[type='submit']:active {
     box-shadow: none;
     background: var(--tertiary-color);
     border: 0;
 }
 
-.chat-footer button[type="submit"]:last-child, .chat-footer button[type="submit"]:last-child:focus, .chat-footer button[type="submit"]:last-child:active {
+.chat-footer button[type='submit']:last-child,
+.chat-footer button[type='submit']:last-child:focus,
+.chat-footer button[type='submit']:last-child:active {
     border-left: 2px solid var(--white01);
 }
 
@@ -443,7 +454,8 @@ blockquote {
     transition: all var(--small-animation-duration) ease-out;
 }
 
-.katex .katex-mathml { /* To fix oversize */
+.katex .katex-mathml {
+    /* To fix oversize */
     display: none;
 }
 

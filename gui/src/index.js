@@ -6,7 +6,6 @@ import './style.css'
 import Chat from './Chat'
 import {Client as RpcClient} from 'rpc-websockets'
 
-
 function connectToServer() {
     const rpcClient = new RpcClient('ws://localhost:8123/rpc')
     window.rpcClient = rpcClient
@@ -16,8 +15,8 @@ function connectToServer() {
 
         root.render(
             <React.StrictMode>
-                <Chat/>
-            </React.StrictMode>,
+                <Chat />
+            </React.StrictMode>
         )
 
         document.querySelector('.main-loader')?.remove()

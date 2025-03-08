@@ -8,3 +8,6 @@ js_format:
 
 build_gui:
 	npm run build --prefix gui
+
+run_gui:
+	npm run start --prefix gui

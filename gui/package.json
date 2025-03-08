@@ -29,8 +29,8 @@
     "build": "node node_modules/react-scripts/scripts/build.js",
     "test": "node node_modules/react-scripts/scripts/test.js",
     "eject": "node node_modules/react-scripts/scripts/eject.js",
-    "lint": "eslint  --fix ./src/**/*.js",
-    "format": "prettier ./src/**/*.js --write --config ./.prettierrc"
+    "lint": "eslint  --fix ./src/",
+    "format": "prettier ./src/ --write --config ./.prettierrc"
   },
   "eslintConfig": {
     "extends": [
