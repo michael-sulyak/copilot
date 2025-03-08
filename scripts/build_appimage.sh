@@ -133,4 +133,10 @@ APPDIR_ABS="$(readlink -f ${APPDIR})"
 echo "Building AppImage with AppDir at ${APPDIR_ABS}..."
 ${APPIMAGE_TOOL} "${APPDIR_ABS}"
 
+##############################
+# Cleanup temp files
+##############################
+echo "Cleaning previous builds..."
+rm -rf build dist ${APP_NAME}.AppDir
+
 echo "AppImage has been successfully created!"
