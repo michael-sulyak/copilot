@@ -1,7 +1,8 @@
-openai_api_key: "your-openai-api-key"
-telegram_api_id: "your-telegram-api-id"
-telegram_api_hash: "your-telegram-api-hash"
-google_app_id: ""
+openai_api_key:
+openrouter_api_key:
+telegram_api_id:
+telegram_api_hash:
+google_app_id:
 debug_copilot: false
 dev_mode: false
 host_name: "localhost"

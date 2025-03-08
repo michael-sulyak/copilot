@@ -12,7 +12,7 @@ from aiohttp import web, web_ws
 
 from . import config
 from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Discussion, Message, Request
-from .dialogs.dialog_loader import load_dialogs
+from .dialogs.dialog_loader import LazyDialog, load_dialogs
 from .dialogs.prompts import PROMPTS
 from .models.openai.base import Whisper
 from .utils.local_file_storage import LocalFileStorage
@@ -110,9 +110,11 @@ class DesktopApp:
     async def run_browser(self) -> None:
         logging.info('Run browser...')
 
+        url = f'http://{config.HOST_NAME}:{config.PORT}/'
+
         proc = await asyncio.create_subprocess_exec(
             'google-chrome',
-            f'--app-id={self.google_app_id}' if self.google_app_id else f'--app=http://{config.HOST_NAME}:{config.PORT}/',
+            f'--app-id={self.google_app_id}' if self.google_app_id else f'--app={url}',
             '--disable-http-cache',
         )
 
@@ -159,7 +161,7 @@ class DesktopApp:
                 {
                     'name': name,
                     'is_active': self.active_dialog == dialog,
-                    'files_are_supported': dialog.files_are_supported,
+                    'files_are_supported': None if isinstance(dialog, LazyDialog) else dialog.files_are_supported,
                 }
                 for name, dialog in self.dialogs_map.items()
             ],
@@ -172,7 +174,11 @@ class DesktopApp:
     async def activate_dialog(self, dialog_name: str) -> None:
         await self.clear_dialog()
 
+        if isinstance(self.dialogs_map[dialog_name], LazyDialog):
+            self.dialogs_map[dialog_name] = self.dialogs_map[dialog_name]()
+
         self.active_dialog = self.dialogs_map[dialog_name]
+
         await self.active_dialog.init()
 
         if welcome_message := await self.active_dialog.get_welcome_message():

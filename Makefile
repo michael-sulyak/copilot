@@ -20,12 +20,17 @@ run_server:
 	poetry run python main.py
 
 prepare: install_deps build_gui
-	cp -r example_of_configs examples
+	cp -r example_of_configs configs
 
 create_desktop_icon:
-	@echo "Generating copilot_m.desktop with current directory paths..."
+	@echo "Generating run.sh..."
+	@printf "#!/bin/bash\n\ncd \"%s\" && make run_server\n" "$(CURDIR)" > run.sh
+	@chmod +x ./run.sh
+
+	@echo "Generating copilot_m.desktop..."
 	@printf "[Desktop Entry]\nType=Application\nName=Copilot\nTerminal=false\nExec=\"%s/run.sh\"\nIcon=%s/gui/public/icon.png\n" "$(CURDIR)" "$(CURDIR)" > copilot_m.desktop
-	@echo "Copying copilot_m.desktop to ~/Desktop..."
+
+	@echo "Copying copilot_m.desktop to ~/.local/share/applications/..."
 	@cp copilot_m.desktop ~/.local/share/applications/
 	@chmod +x ~/.local/share/applications/copilot_m.desktop
 	@echo "Desktop icon has been installed."

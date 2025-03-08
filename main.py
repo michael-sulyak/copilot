@@ -28,11 +28,16 @@ logging.basicConfig(
 
 
 async def main() -> None:
-    app = DesktopApp(
-        dev_mode=config.DEV_MODE,
-        google_app_id=config.GOOGLE_APP_ID,
-    )
-    await app.run()
+    try:
+        app = DesktopApp(
+            dev_mode=config.DEV_MODE,
+            google_app_id=config.GOOGLE_APP_ID,
+        )
+        await app.run()
+    except Exception as e:
+        import subprocess
+        subprocess.run(['/usr/bin/notify-send', '--icon=error', f'Occurred unexpected error (check logs):\n{e}'], check=False)
+        raise
 
 
 if __name__ == '__main__':

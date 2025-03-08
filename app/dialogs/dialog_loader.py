@@ -1,3 +1,5 @@
+import typing
+
 import yaml
 
 from ..memory import Memory
@@ -16,7 +18,17 @@ def load_dialogs_config(path: str) -> dict:
     return config
 
 
-def create_dialog(dialog_data: dict) -> tuple[str, BaseDialog]:
+class LazyDialog:
+    _dialog_creator: typing.Callable
+
+    def __init__(self, dialog_creator: typing.Callable) -> None:
+        self._dialog_creator = dialog_creator
+
+    def __call__(self) -> BaseDialog:
+        return self._dialog_creator()
+
+
+def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
     dialog_type = dialog_data.get('type')
     name = dialog_data.get('name')
     model_name = dialog_data.get('model')
@@ -32,12 +44,12 @@ def create_dialog(dialog_data: dict) -> tuple[str, BaseDialog]:
         memory = Memory(**memory_data)
         model = models_map[model_name]()
         files_supported = dialog_data.get('files_supported', False)
-        return name, Dialog(
+        return name, LazyDialog(lambda: Dialog(
             profile=profile,
             memory=memory,
             model=model,
             files_are_supported=files_supported,
-        )
+        ))
 
     if dialog_type == 'dalle':
         return name, DalleDialog()
@@ -45,10 +57,10 @@ def create_dialog(dialog_data: dict) -> tuple[str, BaseDialog]:
     if dialog_type == 'telegram_folder_reader':
         model = models_map[model_name]()
         extra = dialog_data.get('extra', {})
-        return name, gen_telegram_folder_reader(
+        return name, LazyDialog(lambda: gen_telegram_folder_reader(
             gpt_model=model,
             **extra,
-        )
+        ))
 
     raise ValueError(f'Unknown dialog type: {dialog_type}')
 
