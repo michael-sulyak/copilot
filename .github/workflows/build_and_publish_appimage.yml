@@ -24,6 +24,11 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install system dependencies (including FUSE)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+
       - name: Cache Poetry dependencies
         uses: actions/cache@v3
         with:
