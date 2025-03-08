@@ -20,7 +20,7 @@ run_server:
 	poetry run python main.py
 
 prepare: install_deps build_gui
-	cp -r example_of_configs configs
+	cp -r demo_configs configs
 
 create_desktop_icon:
 	@echo "Generating run.sh..."

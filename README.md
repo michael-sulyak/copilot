@@ -32,7 +32,7 @@ This command will install both Python and JavaScript dependencies, build the fro
 
 ## Configuration
 
-All configuration files (prompts, profiles, etc.) are located in the `configs/` folder (`example_of_configs` is an example of the folder). It’s easy to create your own settings by starting from the example files provided.
+All configuration files (prompts, profiles, etc.) are located in the `configs/` folder (`demo_configs` is an example of the folder). It’s easy to create your own settings by starting from the example files provided.
 
 ## Project structure
 

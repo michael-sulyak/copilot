@@ -7,6 +7,7 @@ import typing
 from functools import cached_property
 
 import openai
+import yaml
 from openai import APIConnectionError, AsyncOpenAI
 from openai.lib.azure import AsyncAzureOpenAI
 from openai.types.chat import ChatCompletion
@@ -386,41 +387,47 @@ OPENAI_CONFIG = OpenAiConfig(
 )
 
 
-class GPT4o(BaseGPT):
-    showed_model_name = 'GPT4o'
-    model_name = 'gpt-4o-2024-11-20'
-    max_tokens = 128_000
-    input_price = 2.5 / 1_000_000
-    output_price = 10 / 1_000_000
-    config = OPENAI_CONFIG
-    has_vision = True
+# class GPT4o(BaseGPT):
+#     showed_model_name = 'GPT4o'
+#     model_name = 'gpt-4o-2024-11-20'
+#     max_tokens = 128_000
+#     input_price = 2.5 / 1_000_000
+#     output_price = 10 / 1_000_000
+#     config = OPENAI_CONFIG
+#     has_vision = True
+#
+#
+# class GPT4mini(BaseGPT):
+#     showed_model_name = 'GPT4o mini'
+#     model_name = 'gpt-4o-mini-2024-07-18'
+#     max_tokens = 128_000
+#     input_price = 0.15 / 1_000_000
+#     output_price = 0.6 / 1_000_000
+#     config = OPENAI_CONFIG
+#     has_vision = True
+#
+#
+# class GPTo3mini(BaseGPT):
+#     showed_model_name = 'GPTo3 mini'
+#     model_name = 'o3-mini-2025-01-31'
+#     max_tokens = 200_000
+#     input_price = 1.1 / 1_000_000
+#     output_price = 4.4 / 1_000_000
+#     config = OPENAI_CONFIG
+#     is_reasoning = True
 
 
-class GPT4mini(BaseGPT):
-    showed_model_name = 'GPT4o mini'
-    model_name = 'gpt-4o-mini-2024-07-18'
-    max_tokens = 128_000
-    input_price = 0.15 / 1_000_000
-    output_price = 0.6 / 1_000_000
-    config = OPENAI_CONFIG
-    has_vision = True
+def load_gpt_models_config() -> typing.Generator:
+    with open(config.MODELS_PATH) as file:
+        models_config = yaml.safe_load(file)
+
+    model_infos = models_config.get('gpt_models', [])
+
+    for model_info in model_infos:
+        yield type(model_info['showed_model_name'], (BaseGPT,), {**model_info, 'config': OPENAI_CONFIG})
 
 
-class GPTo3mini(BaseGPT):
-    showed_model_name = 'GPTo3 mini'
-    model_name = 'o3-mini-2025-01-31'
-    max_tokens = 200_000
-    input_price = 1.1 / 1_000_000
-    output_price = 4.4 / 1_000_000
-    config = OPENAI_CONFIG
-    is_reasoning = True
-
-
-AVAILABLE_GPT_MODELS = (
-    GPT4o,
-    GPT4mini,
-    GPTo3mini,
-)
+AVAILABLE_GPT_MODELS = tuple(load_gpt_models_config())
 
 
 @dataclasses.dataclass
