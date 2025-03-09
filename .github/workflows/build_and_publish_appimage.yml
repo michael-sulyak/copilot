@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -24,10 +24,13 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install system dependencies (including FUSE)
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfuse2
+          sudo apt-get install -y \
+            libfuse2 libcairo2-dev libgirepository1.0-dev \
+            libgl1 libglx-mesa0 libgl1-mesa-dri xvfb libnss3 libxss1 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 \
+            python3-pyqt5 python3-pyqt5.qtwebengine python3-pyqt5.qtwebchannel libqt5webkit5-dev
 
       - name: Cache Poetry dependencies
         uses: actions/cache@v4
@@ -51,6 +54,11 @@ jobs:
             ${{ runner.os }}-build-${{ env.cache-name }}-
             ${{ runner.os }}-build-
             ${{ runner.os }}-
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "${HOME}/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: make install_deps
