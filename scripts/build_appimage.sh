@@ -7,7 +7,7 @@ set -e  # Exit on any error
 
 APP_NAME="Copilot"
 MAIN_SCRIPT="main.py"
-EXTRA_DIRS=("app" "configs" "gui/build" "scripts")
+EXTRA_DIRS=("app" "demo_configs" "gui/build" "scripts")
 ICON_SRC="./gui/build/icon.png"
 APPIMAGE_TOOL="./appimagetool-x86_64.AppImage"
 
@@ -83,11 +83,13 @@ cat <<'EOF' > ${APPDIR}/AppRun
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
 cd "$HERE/usr/bin/myapp"
-export USE_WEBVIEW=1
-export INIT_CONFIGS_DIR=./_internal/configs
-export CONFIGS_DIR=~/.config/copilot_m/
-export STATICS_DIR=./_internal/gui/build
-export LOG_FILE=
+export USE_WEBVIEW=${USE_WEBVIEW:-1}
+export LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-1}
+export INIT_CONFIGS_DIR=${INIT_CONFIGS_DIR:-./_internal/demo_configs}
+export CONFIGS_DIR=${CONFIGS_DIR:-"$HOME/.config/copilot_m/"}
+export STATICS_DIR=${STATICS_DIR:-./_internal/gui/build}
+export TIKTOKEN_CACHE_DIR=${TIKTOKEN_CACHE_DIR:-"$HOME/.cache/copilot_m/tiktoken_cache"}
+export LOG_FILE=${LOG_FILE:-}
 exec "./main" "$@"
 EOF
 chmod +x ${APPDIR}/AppRun
