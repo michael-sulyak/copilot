@@ -129,7 +129,6 @@ if [ ! -x "${APPIMAGE_TOOL}" ]; then
     echo "Error: appimagetool not found or not executable at '${APPIMAGE_TOOL}'"
     exit 1
 fi
-APPDIR="${APP_NAME}.AppDir"
 
 APPDIR_ABS="$(readlink -f ${APPDIR})"
 echo "Building AppImage with AppDir at ${APPDIR_ABS}..."

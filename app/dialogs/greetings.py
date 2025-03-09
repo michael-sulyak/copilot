@@ -8,7 +8,7 @@ class GreetingsDialog(BaseDialog):
             f'**Hello and welcome to our chat application!**\n\n'
             f'To get started, please follow these steps:\n'
             f'1. Update the API token in your main configuration file located at `{config.BASE_CONFIG_PATH}` so that you can use the models.\n'
-            f'2. Remove this dialog from `{config.MODELS_PATH}` and modify other dialogs as needed.\n'
+            f'2. Remove this dialog from `{config.DIALOGS_PATH}` and modify other dialogs as needed.\n'
             f'3. Review the configurations in the `{config.CONFIGS_DIR}` directory to customize the app for your needs.\n\n'
             f'**Thank you for setting up your application!**',
         )
