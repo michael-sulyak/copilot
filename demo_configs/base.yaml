@@ -7,5 +7,5 @@ debug_copilot: false
 dev_mode: false
 use_webview: false
 host_name: "localhost"
-port: 8123
+port: 20770
 uploads_dir: "/tmp"

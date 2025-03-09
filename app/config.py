@@ -10,13 +10,15 @@ if getattr(sys, 'frozen', False):
     BASE_PATH = sys._MEIPASS
 else:
     # When running in a normal Python environment (e.g. during development)
-    BASE_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+
+BASE_PATH = os.path.normpath(os.path.join(BASE_PATH, '..'))
 
 CONFIGS_DIR = os.path.normpath(os.path.join(BASE_PATH, os.getenv('CONFIGS_DIR', './configs')))
 BASE_CONFIG_PATH = os.path.join(CONFIGS_DIR, 'base.yaml')
 INIT_CONFIGS_DIR = os.getenv('INIT_CONFIGS_DIR', './demo_configs/')
 STATICS_DIR = os.path.normpath(os.path.join(BASE_PATH, os.getenv('STATICS_DIR', './gui/build')))
-ICON_PATH = os.path.join(STATICS_DIR, 'icon_256.png')
+ICON_PATH = os.path.join(STATICS_DIR, 'icon.png')
 LOG_FILE = os.getenv('LOG_FILE', './logs.txt')
 
 if INIT_CONFIGS_DIR and not os.path.isdir(CONFIGS_DIR):

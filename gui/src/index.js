@@ -7,7 +7,7 @@ import Chat from './Chat'
 import {Client as RpcClient} from 'rpc-websockets'
 
 function connectToServer() {
-    const rpcClient = new RpcClient('ws://localhost:8123/rpc')
+    const rpcClient = new RpcClient('ws://localhost:20770/rpc')
     window.rpcClient = rpcClient
 
     rpcClient.on('open', (event) => {

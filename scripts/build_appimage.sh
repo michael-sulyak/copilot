@@ -126,6 +126,7 @@ cp "${ICON_SRC}" ${APPDIR}/myapp.png
 echo "Building AppImage..."
 wget https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage
 chmod +x appimagetool-x86_64.AppImage
+export ARCH=x86_64
 if [ ! -x "${APPIMAGE_TOOL}" ]; then
     echo "Error: appimagetool not found or not executable at '${APPIMAGE_TOOL}'"
     exit 1

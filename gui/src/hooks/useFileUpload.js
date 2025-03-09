@@ -21,7 +21,7 @@ function useFileUpload({addNotification, updateChatState}) {
             })
 
             const xhr = new XMLHttpRequest()
-            xhr.open('POST', 'http://localhost:8123/upload-file', true)
+            xhr.open('POST', 'http://localhost:20770/upload-file', true)
 
             if (updateChatStateText) {
                 xhr.upload.onprogress = async (event) => {
