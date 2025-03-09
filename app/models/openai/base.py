@@ -424,6 +424,8 @@ def load_gpt_models_config() -> typing.Generator:
     model_infos = models_config.get('gpt_models', [])
 
     for model_info in model_infos:
+        model_info['input_price'] = float(model_info['input_price'])
+        model_info['output_price'] = float(model_info['output_price'])
         yield type(model_info['showed_model_name'], (BaseGPT,), {**model_info, 'config': OPENAI_CONFIG})
 
 
