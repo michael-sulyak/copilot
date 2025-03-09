@@ -90,6 +90,7 @@ export CONFIGS_DIR=${CONFIGS_DIR:-"$HOME/.config/copilot_m/"}
 export STATICS_DIR=${STATICS_DIR:-./_internal/gui/build}
 export TIKTOKEN_CACHE_DIR=${TIKTOKEN_CACHE_DIR:-"$HOME/.cache/copilot_m/tiktoken_cache"}
 export LOG_FILE=${LOG_FILE:-}
+export PORT=${PORT:-20770}
 exec "./main" "$@"
 EOF
 chmod +x ${APPDIR}/AppRun

@@ -48,7 +48,6 @@ class DesktopApp:
 
         self.dialogs_map = load_dialogs(config.DIALOGS_PATH)
 
-
     async def start(self) -> None:
         logging.info('Staring...')
 
@@ -100,11 +99,16 @@ class DesktopApp:
         self.runner = web.AppRunner(app)
         await self.runner.setup()
 
-        os.system(f'kill -2 `lsof -t -i:{config.PORT}`')
-
         site = web.TCPSite(self.runner, config.HOST_NAME, port=config.PORT)
 
-        await site.start()
+        try:
+            await site.start()
+        except OSError:
+            os.system(f'kill -2 `lsof -t -i:{config.PORT}`')
+            await site.stop()
+            await asyncio.sleep(1)
+            os.system(f'kill -9 `lsof -t -i:{config.PORT}`')
+            await site.start()
 
     async def run_browser(self) -> None:
         logging.info('Run browser...')

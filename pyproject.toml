@@ -38,7 +38,7 @@ ruff = "^0.9.10"
 optional = true
 
 [tool.poetry.group.webview.dependencies]
-pywebview = {extras = ["qt"], version = "^5.4"}
+pywebview = {extras = ["gtk"], version = "^5.4"}
 pygobject = "^3.50.0"
 
 

@@ -3,10 +3,20 @@ import multiprocessing
 
 import webview
 
+from . import config
+
 
 def create_webview(url: str) -> None:
-    webview.create_window('Copilot', url)
-    webview.start()
+    webview.create_window(
+        title='Copilot',
+        url=url,
+        text_select=True,
+        draggable=True,
+        zoomable=True,
+        maximized=True,
+        on_top=True,
+    )
+    webview.start(icon=config.ICON_PATH, gui='gtk')
 
 
 async def run_webview(url: str) -> None:
