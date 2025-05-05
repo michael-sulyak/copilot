@@ -14,7 +14,7 @@ from . import config
 from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Discussion, Message, Request
 from .dialogs.dialog_loader import LazyDialog, load_dialogs
 from .dialogs.prompts import PROMPTS
-from .models.openai.base import Whisper
+from .models.openai.base import Gpt4oTranscriber
 from .utils.local_file_storage import LocalFileStorage
 from .web.middlewares import index_middleware
 
@@ -284,7 +284,7 @@ class DesktopApp:
             }
 
         with audio_file.open() as file:
-            result = await Whisper.process(file)
+            result = await Gpt4oTranscriber.process(file)
 
         return {
             'error': None,

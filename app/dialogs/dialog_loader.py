@@ -5,7 +5,7 @@ import yaml
 from ..memory import Memory
 from ..models.openai.base import AVAILABLE_GPT_MODELS
 from .base import BaseDialog
-from .dalle_chat import DalleDialog
+from .drawer_chat import DalleDialog, GptImageDialog
 from .gpt_chat import Dialog
 from .greetings import GreetingsDialog
 from .profiles import PROFILES
@@ -54,6 +54,9 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
 
     if dialog_type == 'dalle':
         return name, DalleDialog()
+
+    if dialog_type == 'gpt_image':
+        return name, GptImageDialog()
 
     if dialog_type == 'greetings':
         return name, GreetingsDialog()

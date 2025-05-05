@@ -7,6 +7,7 @@ from functools import cached_property
 from ...models.openai.base import BaseGPT, GPTMessage, GPTResponse
 from ...models.openai.constants import GPTBehaviour, GPTRoles
 from ...utils.common import escape_markdown, gen_optimized_json
+from ...utils.text_processing import remove_triple_backticks
 from ..base import AnswerBtn, Discussion, Message
 from .message_extractor import TelegramMessageExtractor
 
@@ -122,7 +123,7 @@ class TelegramMessageAggregator:
 
     @staticmethod
     def _prepare_answer_for_gpt_response(group: MessageGroup | None, gpt_response: GPTResponse) -> Message:
-        content = gpt_response.content
+        content = remove_triple_backticks(gpt_response.content)
 
         if group:
             prefix = ''.join(

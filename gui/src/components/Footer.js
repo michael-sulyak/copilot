@@ -47,7 +47,7 @@ const processFileItems = (items) => {
         if (typeof item.webkitGetAsEntry === 'function') {
             const entry = item.webkitGetAsEntry()
             if (entry) {
-                // Use traverseFileTree to handle both files and folders
+                // Use traverseFileTree to handle both files and folders.
                 filePromises.push(traverseFileTree(entry))
             }
         } else if (item.kind === 'file') {
@@ -71,7 +71,7 @@ const handleFilesFromEvent = ({event, dataSource, onFileUpload}) => {
             })
             .catch((error) => console.error('Error processing items:', error))
     } else if (dataSource && dataSource.files && dataSource.files.length > 0) {
-        // Fallback for older browsers
+        // Fallback for older browsers.
         onFileUpload({target: {files: dataSource.files}})
     }
 }
@@ -94,12 +94,25 @@ function Footer({
 }) {
     const chatStatusContainerRef = useRef()
     const pasteHandlerRef = useRef()
+
     const handlePaste = useCallback(
         (event) => {
             if (event.clipboardData) {
                 const items = Array.from(event.clipboardData.items)
-                const hasFile = items.some((item) => item.kind === 'file')
+                // Check for image file(s) first (e.g. screenshots).
+                const imageFiles = items
+                    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+                    .map((item) => item.getAsFile())
+                    .filter(Boolean)
 
+                if (imageFiles.length > 0) {
+                    // Directly pass image files to onFileUpload.
+                    onFileUpload({target: {files: imageFiles}})
+                    event.preventDefault()
+                    return
+                }
+                // If no direct image is found, check if there is any file item.
+                const hasFile = items.some((item) => item.kind === 'file')
                 if (hasFile) {
                     handleFilesFromEvent({event, dataSource: event.clipboardData, onFileUpload})
                     event.preventDefault()
@@ -108,9 +121,11 @@ function Footer({
         },
         [onFileUpload]
     )
+
     const handleDragOver = useCallback((event) => {
         event.preventDefault()
     }, [])
+
     const handleDrop = useCallback(
         (event) => {
             event.preventDefault()

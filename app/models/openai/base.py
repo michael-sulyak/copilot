@@ -1,9 +1,12 @@
+import abc
 import asyncio
+import base64
 import dataclasses
 import datetime
 import json
 import logging
 import typing
+from contextlib import ExitStack
 from functools import cached_property
 
 import openai
@@ -14,6 +17,7 @@ from openai.types.chat import ChatCompletion
 
 from ... import config
 from ...utils.common import chunk_generator
+from ...utils.local_file_storage import File
 from .constants import NOTSET, GPTContentTypes, GPTFuncParamTypes, GPTRoles
 from .utils import num_tokens_from_messages, prepare_gpt_response_content
 
@@ -481,55 +485,113 @@ class Embedding:
 
 
 @dataclasses.dataclass
-class ImageResponse:
-    url: str
-    cost: float
+class DrawerResponse:
+    url: str | None = None
+    data: bytes | None = None
+    cost: float = 0
 
 
-class Dalle:
-    model_name = 'dall-e-3'
-    price = 0.12
-    max_prompt_length = 1_000
-    config = OPENAI_CONFIG
+class BaseDrawer(abc.ABC):
+    model_name: str
+    price: float
+    max_prompt_length: int
+    size: str
+    has_vision: bool
+    config: OpenAiConfig
 
     @classmethod
-    async def process(cls, text: str) -> ImageResponse:
+    async def create(cls, text: str) -> DrawerResponse:
         if len(text) >= cls.max_prompt_length:
-            raise openai.OpenAIError('The maximum length is 1000 characters')
+            raise openai.OpenAIError(f'The maximum length is {cls.max_prompt_length} characters')
 
         response = await cls.config.client.images.generate(
             prompt=text,
             n=1,
             model=cls.model_name,
-            quality='hd',
-            size='1792x1024',
+            quality='high',
+            size=cls.size,
         )
-        return ImageResponse(
+        return DrawerResponse(
             url=response.data[0].url,
-            cost=cls.price,
         )
+
+    @classmethod
+    async def edit(cls, text: str, *, images: typing.Sequence[File]) -> DrawerResponse:
+        if len(text) >= cls.max_prompt_length:
+            raise openai.OpenAIError(f'The maximum length is {cls.max_prompt_length} characters')
+
+        with ExitStack() as stack:
+            opened_images = [stack.enter_context(image.open()) for image in images]
+
+            response = await cls.config.client.images.edit(
+                prompt=text,
+                n=1,
+                model=cls.model_name,
+                quality='high',
+                size=cls.size,
+                image=opened_images,
+            )
+
+        image_base64 = response.data[0].b64_json
+        image_bytes = base64.b64decode(image_base64)
+
+        return DrawerResponse(
+            url=None,
+            data=image_bytes,
+        )
+
+
+class Dalle(BaseDrawer):
+    model_name = 'dall-e-3'
+    price = 0.12
+    max_prompt_length = 1_000
+    size = '1792x1024'
+    has_vision = False
+    config = OPENAI_CONFIG
+
+
+class GptImage(BaseDrawer):
+    model_name = 'gpt-image-1'
+    price = 0.25
+    max_prompt_length = 10_000
+    size = '1536x1024'
+    has_vision = True
+    config = OPENAI_CONFIG
 
 
 @dataclasses.dataclass
-class WhisperResponse:
+class TranscriberResponse:
     text: str
     cost: float
 
 
-class Whisper:
+class BaseTranscriber(abc.ABC):
+    model_name: str
+    price: float
+    config: OpenAiConfig
+
+    @classmethod
+    async def process(cls, audio: typing.BinaryIO) -> TranscriberResponse:
+        response = await cls.config.client.audio.transcriptions.create(
+            model=cls.model_name,
+            file=audio,
+            response_format='json',
+        )
+
+        return TranscriberResponse(
+            text=response.text,
+            # cost=response.duration / 60 * cls.price,
+            cost=0,
+        )
+
+
+class Whisper(BaseTranscriber):
     model_name = 'whisper-1'
     price = 0.006
     config = OPENAI_CONFIG
 
-    @classmethod
-    async def process(cls, audio: typing.BinaryIO) -> WhisperResponse:
-        response = await cls.config.client.audio.transcriptions.create(
-            model=cls.model_name,
-            file=audio,
-            response_format='verbose_json',
-        )
 
-        return WhisperResponse(
-            text=response.text,
-            cost=response.duration / 60 * cls.price,
-        )
+class Gpt4oTranscriber(BaseTranscriber):
+    model_name = 'gpt-4o-transcribe'
+    price = 0.006
+    config = OPENAI_CONFIG

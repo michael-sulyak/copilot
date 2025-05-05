@@ -18,6 +18,10 @@ class FileProcessor:
 
         return f'data:{self.file.mime_type};base64,{encoded_string}'
 
+    def to_bytes(self) -> bytes:
+        with open(self.file.path, 'rb') as file:
+            return file.read()
+
     def to_txt(self) -> str:
         if self.file.mime_type in (
             'application/vnd.ms-excel',
