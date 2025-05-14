@@ -72,6 +72,7 @@ HOST_NAME = get_config_value('host_name', 'localhost')
 PORT = int(get_config_value('port', 8123))
 
 UPLOADS_DIR = get_config_value('uploads_dir', '/tmp')
+SHOWED_UPLOADS_DIR = get_config_value('showed_uploads_dir', '/uploads')
 PROFILES_DIR = os.path.join(CONFIGS_DIR, 'profiles')
 PROMPTS_DIR = os.path.join(CONFIGS_DIR, 'prompts')
 DIALOGS_PATH = os.path.join(CONFIGS_DIR, 'dialogs.yaml')

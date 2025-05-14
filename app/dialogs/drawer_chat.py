@@ -1,12 +1,19 @@
 import abc
 import logging
+from io import BytesIO
 
 from ..models.openai.base import BaseDrawer, Dalle, GptImage
+from ..utils.local_file_storage import LocalFileStorage, get_file_storage
 from .base import BaseDialog, DialogError, Message, Request
 
 
 class BaseDrawer(BaseDialog, abc.ABC):
     model: type[BaseDrawer]
+    file_storage: LocalFileStorage
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.file_storage = get_file_storage()
 
     @property
     def files_are_supported(self) -> bool:
@@ -35,6 +42,9 @@ class BaseDrawer(BaseDialog, abc.ABC):
         except Exception as e:
             logging.exception(e)
             raise DialogError(str(e)) from e
+
+        if response.url is None:
+            response.url = (await self.file_storage.save_file(file_name='image.png', buffer=BytesIO(response.data))).url
 
         await request.discussion.set_text_status('Sending image...')
         await request.discussion.answer(Message(content=f'![Image]({response.url})'))

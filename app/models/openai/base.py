@@ -76,6 +76,7 @@ class GPTResponse:
     cost: float
     total_tokens: int
     original_response: ChatCompletion
+    annotations: list[dict] | None = None
     generated_at: datetime.datetime = dataclasses.field(
         default_factory=datetime.datetime.now,
     )
@@ -201,7 +202,7 @@ class GPTFunc:
 class GPTRequest:
     model: str
     messages: typing.Sequence[GPTMessage]
-    n: int
+    n: int | NOTSET = NOTSET
     temperature: float | NOTSET = NOTSET
     top_p: float | NOTSET = NOTSET
     response_format: str | NOTSET = NOTSET
@@ -215,8 +216,10 @@ class GPTRequest:
                 message.dump()
                 for message in self.messages
             ],
-            'n': self.n,
         }
+
+        if self.n is not NOTSET:
+            result['n'] = self.n
 
         if self.temperature is not NOTSET:
             result['temperature'] = self.temperature
@@ -253,6 +256,7 @@ class BaseGPT:
     config: OpenAiConfig
     has_vision: bool = False
     is_reasoning: bool = False
+    is_searching: bool = False
 
     @classmethod
     async def process(cls,
@@ -271,7 +275,7 @@ class BaseGPT:
             temperature=temperature,
             top_p=top_p,
             messages=messages,
-            n=1,
+            n=NOTSET if cls.is_searching else 1,
             response_format=response_format,
             functions=functions,
             reasoning_effort=reasoning_effort,
@@ -353,6 +357,11 @@ class BaseGPT:
         else:
             gpt_func_call = None
 
+        annotations = response.choices[0].message.annotations
+
+        if annotations:
+            annotations = [annotation.model_dump() for annotation in annotations]
+
         return GPTResponse(
             content=prepare_gpt_response_content(response.choices[0].message.content),
             func_call=gpt_func_call,
@@ -360,6 +369,7 @@ class BaseGPT:
             cost=cost,
             total_tokens=response.usage.total_tokens,
             original_response=response,
+            annotations=annotations,
         )
 
     @classmethod
@@ -511,8 +521,16 @@ class BaseDrawer(abc.ABC):
             quality='high',
             size=cls.size,
         )
+
+        if response.data[0].url is None:
+            image_base64 = response.data[0].b64_json
+            image_bytes = base64.b64decode(image_base64)
+        else:
+            image_bytes = None
+
         return DrawerResponse(
             url=response.data[0].url,
+            data=image_bytes,
         )
 
     @classmethod
@@ -532,11 +550,14 @@ class BaseDrawer(abc.ABC):
                 image=opened_images,
             )
 
-        image_base64 = response.data[0].b64_json
-        image_bytes = base64.b64decode(image_base64)
+        if response.data[0].url is None:
+            image_base64 = response.data[0].b64_json
+            image_bytes = base64.b64decode(image_base64)
+        else:
+            image_bytes = None
 
         return DrawerResponse(
-            url=None,
+            url=response.data[0].url,
             data=image_bytes,
         )
 

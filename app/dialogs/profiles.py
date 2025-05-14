@@ -13,6 +13,7 @@ class BaseProfile(abc.ABC):
     temperature: float | NOTSET = NOTSET
     top_p: float | NOTSET = NOTSET
     reasoning_effort: str | NOTSET = NOTSET
+    search_context_size: str | NOTSET = NOTSET
 
     @abc.abstractmethod
     def get_context(self) -> str:
@@ -29,9 +30,12 @@ class BaseFileProfile(BaseProfile, abc.ABC):
 
 
 class BaseTextProfile(BaseProfile, abc.ABC):
-    text: typing.ClassVar[str]
+    text: typing.ClassVar[str | NOTSET] = NOTSET
 
-    def get_context(self) -> str:
+    def get_context(self) -> str | None:
+        if self.text is NOTSET:
+            return None
+
         return self.text
 
 

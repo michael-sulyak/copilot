@@ -70,12 +70,25 @@ class Dialog(BaseDialog):
     async def handle_via_gpt(self) -> Message:
         logging.info('History: %s', self.memory.get_buffer())
 
+        params = {}
+
+        if not self.model.is_reasoning and not self.model.is_searching:
+            if self.profile.temperature is not NOTSET:
+                params['temperature'] = self.profile.temperature
+
+            if self.profile.top_p is not NOTSET:
+                params['top_p'] = self.profile.top_p
+
+                if self.profile.top_p is not NOTSET:
+                    params['top_p'] = self.profile.top_p
+
+        if self.model.is_reasoning:
+            params['reasoning_effort'] = self.profile.reasoning_effort
+
         try:
             response = await self.model.process(
                 messages=self.memory.get_buffer(),
-                temperature=NOTSET if self.model.is_reasoning else self.profile.temperature,
-                top_p=NOTSET if self.model.is_reasoning else self.profile.top_p,
-                reasoning_effort=self.profile.reasoning_effort if self.model.is_reasoning else NOTSET,
+                **params,
             )
         except Exception as e:
             logging.exception(e)
@@ -83,8 +96,18 @@ class Dialog(BaseDialog):
 
         self.memory.add_message(GPTMessage(role=GPTRoles.ASSISTANT, content=response.content))
 
+        content = response.content
+
+        if self.model.is_searching and response.annotations:
+            additional_info = '\n\n---\n\n**Sources:**\n\n'
+
+            for annotation in response.annotations:
+                additional_info += f'* [{annotation["url_citation"]["title"]}])({annotation["url_citation"]['url']})\n'
+
+            content += additional_info
+
         return Message(
-            content=response.content,
+            content=content,
             duration=response.duration,
             cost=response.cost,
             total_tokens=response.total_tokens,

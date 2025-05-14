@@ -2,7 +2,6 @@ import asyncio
 import datetime
 import logging
 import os
-import uuid
 import weakref
 from typing import NoReturn
 
@@ -15,7 +14,7 @@ from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Discussion, Messa
 from .dialogs.dialog_loader import LazyDialog, load_dialogs
 from .dialogs.prompts import PROMPTS
 from .models.openai.base import Gpt4oTranscriber
-from .utils.local_file_storage import LocalFileStorage
+from .utils.local_file_storage import LocalFileStorage, get_file_storage
 from .web.middlewares import index_middleware
 
 
@@ -37,15 +36,7 @@ class DesktopApp:
         self.history = []
 
     async def init(self) -> None:
-        file_storage_path = os.path.join(config.UPLOADS_DIR, str(uuid.uuid4()))
-
-        if not os.path.exists(file_storage_path):
-            os.makedirs(file_storage_path)
-
-        self.file_storage = LocalFileStorage(
-            target_directory=file_storage_path,
-        )
-
+        self.file_storage = get_file_storage()
         self.dialogs_map = load_dialogs(config.DIALOGS_PATH)
 
     async def start(self) -> None:
@@ -82,6 +73,7 @@ class DesktopApp:
             web.get('/rpc', self.rpc_server.handle_http_request),
             web.post('/upload-file', self.handle_file_upload),
         ))
+        app.router.add_static(self.file_storage.showed_directory, path=self.file_storage.target_directory, name='uploads')
         app.router.add_static('/', path=config.STATICS_DIR, name='static')
         app.on_shutdown.append(self.rpc_server.on_shutdown)
 

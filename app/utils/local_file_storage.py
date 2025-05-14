@@ -1,16 +1,21 @@
 import contextlib
 import dataclasses
 import datetime
+import io
+import logging
 import mimetypes
 import os
 import pathlib
 import shutil
 import typing
 import uuid
-from functools import cached_property
+from functools import cached_property, lru_cache
 
+import aiofiles
 import magic
 from aiohttp import web
+
+from app import config
 
 
 @dataclasses.dataclass(frozen=True)
@@ -19,6 +24,7 @@ class File:
     name: str
     path: str
     uploaded_at: datetime.datetime
+    url: str | None = None
 
     @cached_property
     def mime_type(self) -> str:
@@ -74,10 +80,13 @@ class File:
 
 
 class LocalFileStorage:
+    target_directory: str
+    showed_directory: str
     _files_map: dict[str, File] = {}
 
-    def __init__(self, *, target_directory: str) -> None:
+    def __init__(self, *, target_directory: str, showed_directory: str) -> None:
         self.target_directory = target_directory
+        self.showed_directory = showed_directory
         shutil.rmtree(self.target_directory)
         os.makedirs(self.target_directory)
 
@@ -118,3 +127,48 @@ class LocalFileStorage:
                 self._files_map[file_info.id] = file_info
 
         return saved_files
+
+    async def save_file(self, file_name: str, buffer: io.BytesIO) -> File:
+        file_extension = pathlib.Path(file_name).suffix
+        file_id = str(uuid.uuid4())
+        new_file_name = f'{file_id}{file_extension}'
+        file_path = os.path.join(self.target_directory, new_file_name)
+
+        buffer.seek(0)
+        chunk_size = 8192
+
+        async with aiofiles.open(file_path, 'wb') as file:
+            while True:
+                chunk = buffer.read(chunk_size)
+
+                if not chunk:
+                    break
+
+                await file.write(chunk)
+
+        file_info = File(
+            id=file_id,
+            name=file_name,
+            path=file_path,
+            url=os.path.join(self.showed_directory, new_file_name),
+            uploaded_at=datetime.datetime.now(),
+        )
+
+        self._files_map[file_info.id] = file_info
+
+        return file_info
+
+
+@lru_cache(maxsize=1)
+def get_file_storage() -> LocalFileStorage:
+    file_storage_path = os.path.join(config.UPLOADS_DIR, str(uuid.uuid4()))
+
+    if not os.path.exists(file_storage_path):
+        os.makedirs(file_storage_path)
+
+    logging.info('File storage path: %s', file_storage_path)
+
+    return LocalFileStorage(
+        target_directory=file_storage_path,
+        showed_directory=config.SHOWED_UPLOADS_DIR,
+    )
