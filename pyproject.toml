@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "Copilot"
-version = "1.0.0"
+version = "1.1.0"
 description = ""
 authors = ["Michael S."]
 readme = "README.md"
