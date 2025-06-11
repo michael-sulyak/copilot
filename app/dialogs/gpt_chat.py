@@ -41,16 +41,21 @@ class Dialog(BaseDialog):
                     logging.info(f'File attachment: {attachment.name} ({attachment.mime_type})')
                     attachments.append(attachment)
 
-        for attachment in attachments:
-            self.memory.add_message(GPTMessage(
-                role=GPTRoles.SYSTEM,
-                content=(
-                    f'There has been provided an attachment '
-                    f'with name `{attachment.name}` and MIME type `{attachment.mime_type}`.'
-                    f'The content of the attachment is as follows:\n'
-                    f'{FileProcessor(attachment).to_txt()}'
-                ),
-            ))
+        if attachments:
+            await request.discussion.set_text_status('Parsing attachments...')
+
+            for attachment in attachments:
+                self.memory.add_message(GPTMessage(
+                    role=GPTRoles.SYSTEM,
+                    content=(
+                        f'There has been provided an attachment '
+                        f'with name `{attachment.name}` and MIME type `{attachment.mime_type}`.'
+                        f'The content of the attachment is as follows:\n'
+                        f'{FileProcessor(attachment).to_txt()}'
+                    ),
+                ))
+
+            await request.discussion.reset_text_status()
 
         if base64_images and not self.model.has_vision:
             raise DialogError('The models does not support vision.')

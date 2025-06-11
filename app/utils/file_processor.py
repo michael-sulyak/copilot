@@ -1,4 +1,5 @@
 import base64
+from functools import cached_property
 from io import StringIO
 
 import pandas as pd
@@ -32,8 +33,38 @@ class FileProcessor:
             file.to_csv(buffer, index=False, header=True)
             return buffer.getvalue()
 
+        if self._can_parse_via_docling():
+            return self._parse_via_docling()
+
         if self.file.mime_type.startswith('text/') or self.file.is_plain_text:
             with open(self.file.path) as file:
                 return file.read()
 
         raise ValueError(f'Unsupported file type (for {self.file.mime_type})')
+
+    def _can_parse_via_docling(self) -> bool:
+        supported_mime_types = {
+            # *FormatToMimeType[InputFormat.DOCX],
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+
+            # *FormatToMimeType[InputFormat.PPTX],
+            'application/vnd.openxmlformats-officedocument.presentationml.template',
+            'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+
+            # *FormatToMimeType[InputFormat.PDF],
+            'application/pdf',
+        }
+
+        return self.file.mime_type in supported_mime_types
+
+    def _parse_via_docling(self) -> str:
+        result = self._docling_converter.convert(self.file.path)
+        return result.document.export_to_markdown()
+
+    @cached_property
+    def _docling_converter(self):
+        from docling.document_converter import DocumentConverter
+
+        return DocumentConverter()
