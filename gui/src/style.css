@@ -369,8 +369,27 @@ button,
 .message-controllers .btn {
     background: transparent;
     border: 0;
-    opacity: 0.03;
+    opacity: 0.04;
     transition: all var(--small-animation-duration) ease-out;
+    display: block;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.message-controllers .btn:first-child {
+    padding-top: var(--bs-btn-padding-y);
+}
+
+.message-controllers .btn:last-child {
+    padding-bottom: var(--bs-btn-padding-y);
+}
+
+.message-controllers .btn:not(:first-child) {
+    opacity: 0;
+}
+
+.message-controllers:hover .btn {
+    opacity: 0.1;
 }
 
 .message-footer-text {

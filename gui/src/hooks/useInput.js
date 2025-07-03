@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react'
 import {needToTurnOnVPN} from '../utils'
+import * as uuid from 'uuid'
 
 function useChatState({
     textareaRef,
@@ -85,6 +86,7 @@ function useChatState({
         }
 
         const preparedMessage = {
+            uuid: uuid.v4(),
             from: 'user',
             body: {
                 content: message,
@@ -115,13 +117,26 @@ function useChatState({
         clearFiles,
         setUserInteractionTrigger,
         setMessages,
+        setIsWaitingAnswer,
     ])
+
+    const deleteMessage = useCallback(
+        async (messageUuid) => {
+            console.log(`deleteMessage ${messageUuid}`)
+            const rpcClient = window.rpcClient
+            await setIsWaitingAnswer(true)
+            await rpcClient.call('delete_message', [messageUuid]).catch(processRpcError)
+            await setMessages((messages) => messages.filter((message) => message.uuid !== messageUuid))
+            await setIsWaitingAnswer(false)
+        },
+        [setMessages, setIsWaitingAnswer, processRpcError]
+    )
 
     const callButtonCallback = useCallback(
         async (callbackPayload) => {
             const rpcClient = window.rpcClient
             await updateChatState({status: 'loading'})
-            const preparedMessage = {from: 'user', body: {callback: callbackPayload}}
+            const preparedMessage = {uuid: uuid.v4(), from: 'user', body: {callback: callbackPayload}}
             try {
                 const response = await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
                 response && setMessages((prev) => [...prev, response])
@@ -165,6 +180,7 @@ function useChatState({
         chatState,
         updateChatState,
         sendMessage,
+        deleteMessage,
         callButtonCallback,
         isWaitingAnswer,
         setIsWaitingAnswer,

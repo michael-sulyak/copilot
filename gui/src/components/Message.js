@@ -2,10 +2,14 @@ import React, {Fragment} from 'react'
 import Markdown from './Markdown'
 import {Button} from 'react-bootstrap'
 
-function Message({message, addNotification, callButtonCallback}) {
-    const copyText = () => {
+function Message({message, addNotification, callButtonCallback, deleteMessage}) {
+    const copyText = async () => {
         navigator.clipboard.writeText(message.body.content)
-        addNotification('Copied')
+        await addNotification('Copied')
+    }
+
+    const deleteCurrentMessage = async () => {
+        await deleteMessage(message.uuid)
     }
 
     const controllers = (
@@ -13,6 +17,12 @@ function Message({message, addNotification, callButtonCallback}) {
             <Button type="button" onClick={copyText}>
                 <i className="fa-solid fa-copy" />
             </Button>
+            {/*<Button type="button" onClick={deleteCurrentMessage}>*/}
+            {/*    <i className="fa-solid fa-pen"></i>*/}
+            {/*</Button>*/}
+            {/*<Button type="button" onClick={deleteCurrentMessage}>*/}
+            {/*    <i className="fa-solid fa-xmark"></i>*/}
+            {/*</Button>*/}
         </div>
     )
 

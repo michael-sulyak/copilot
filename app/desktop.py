@@ -10,7 +10,8 @@ import aiohttp_rpc
 from aiohttp import web, web_ws
 
 from . import config
-from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Discussion, Message, Request
+from .desktop_defs import InputMessage, OutputMessage
+from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Discussion, Request
 from .dialogs.dialog_loader import LazyDialog, load_dialogs
 from .dialogs.prompts import PROMPTS
 from .models.openai.base import Gpt4oTranscriber
@@ -27,13 +28,13 @@ class DesktopApp:
     dialogs_map: dict
     dev_mode: bool
     google_app_id: str | None
-    history: list[dict | str]
+    history: dict[str, InputMessage | OutputMessage]
     file_storage: LocalFileStorage
 
     def __init__(self, *, dev_mode: bool, google_app_id: str | None) -> None:
         self.dev_mode = dev_mode
         self.google_app_id = google_app_id
-        self.history = []
+        self.history = {}
 
     async def init(self) -> None:
         self.file_storage = get_file_storage()
@@ -64,6 +65,7 @@ class DesktopApp:
             aiohttp_rpc.JsonRpcMethod(self.activate_dialog, name='activate_dialog'),
             aiohttp_rpc.JsonRpcMethod(self.clear_dialog, name='clear_dialog'),
             aiohttp_rpc.JsonRpcMethod(self.process_audio, name='process_audio'),
+            aiohttp_rpc.JsonRpcMethod(self.delete_message, name='delete_message'),
         ))
 
         app = web.Application(middlewares=(
@@ -73,7 +75,8 @@ class DesktopApp:
             web.get('/rpc', self.rpc_server.handle_http_request),
             web.post('/upload-file', self.handle_file_upload),
         ))
-        app.router.add_static(self.file_storage.showed_directory, path=self.file_storage.target_directory, name='uploads')
+        app.router.add_static(self.file_storage.showed_directory, path=self.file_storage.target_directory,
+                              name='uploads')
         app.router.add_static('/', path=config.STATICS_DIR, name='static')
         app.on_shutdown.append(self.rpc_server.on_shutdown)
 
@@ -142,12 +145,12 @@ class DesktopApp:
         await self.rpc_client.notify('show_notification', text)
 
     async def answer(self, answer: BaseAnswer) -> None:
-        raw_answer = answer.to_dict()
+        output_obj = answer.to_output_obj()
 
-        if isinstance(answer, Message):
-            self.history.append(raw_answer)
+        if isinstance(output_obj, OutputMessage):
+            self.history[output_obj.uuid] = output_obj
 
-        await self.rpc_client.notify('process_message', raw_answer)
+        await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
 
     async def clear_dialog(self) -> None:
         self.history.clear()
@@ -172,7 +175,10 @@ class DesktopApp:
         }
 
     async def get_history(self) -> list[dict]:
-        return self.history
+        return [
+            item.model_dump(by_alias=True)
+            for item in self.history.values()
+        ]
 
     async def activate_dialog(self, dialog_name: str) -> None:
         await self.clear_dialog()
@@ -200,30 +206,29 @@ class DesktopApp:
             self.is_run = False
 
     async def process_message(self, message: dict) -> None:
-        is_callback = bool(message['body'].get('callback'))
-
+        message = InputMessage.model_validate(message)
         discussion = Discussion(app=self)
 
-        if is_callback:
+        if message.is_callback:
             request = Request(
-                callback=message['body']['callback'],
+                callback=message.body.callback,
                 discussion=discussion,
             )
         else:
             request = Request(
-                content=message['body']['content'],
+                content=message.body.content,
                 attachments=[
                     file
-                    for file_id in message['body']['attachments']
+                    for file_id in message.body.attachments
                     if (file := self.file_storage.get(file_id))
                 ],
                 discussion=discussion,
             )
-            self.history.append(message)
+            self.history[message.uuid] = message
 
         async def _process_request() -> None:
             try:
-                if is_callback:
+                if message.is_callback:
                     await self.active_dialog.handle_callback(request)
                 else:
                     await self.active_dialog.handle(request)
@@ -262,6 +267,17 @@ class DesktopApp:
                 await self.wait()
         finally:
             await self.clean()
+
+    async def edit_message(self, message: dict) -> None:
+        message = InputMessage.model_validate(message)
+
+        if message.uuid not in self.history:
+            raise RuntimeError(f'Message with UUID "{message.uuid}" not found.')
+
+        self.history[message.uuid] = message
+
+    async def delete_message(self, message_uuid: str) -> None:
+        self.history.pop(message_uuid, None)
 
     async def process_audio(self, file_id: str) -> dict:
         audio_file = self.file_storage.get(file_id)

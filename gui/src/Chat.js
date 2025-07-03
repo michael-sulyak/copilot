@@ -42,7 +42,7 @@ function Chat() {
         addNotification,
         updateChatState,
     })
-    const {inputValue, setInputValue, sendMessage, callButtonCallback, isWaitingAnswer, handleInputChange} = useInput({
+    const {inputValue, setInputValue, sendMessage, deleteMessage, callButtonCallback, isWaitingAnswer, handleInputChange} = useInput({
         textareaRef,
         addNotification,
         attachedFiles,
@@ -78,7 +78,13 @@ function Chat() {
             <Card.Body className="chat-body" ref={chatBodyRef}>
                 <div className="chat-body-shadow"></div>
                 {messages.map((message, index) => (
-                    <Message key={index} message={message} addNotification={addNotification} callButtonCallback={callButtonCallback} />
+                    <Message
+                        key={index}
+                        message={message}
+                        addNotification={addNotification}
+                        deleteMessage={deleteMessage}
+                        callButtonCallback={callButtonCallback}
+                    />
                 ))}
             </Card.Body>
 

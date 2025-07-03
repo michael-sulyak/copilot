@@ -3,7 +3,11 @@ import dataclasses
 import datetime
 import time
 import typing
+import uuid
 
+from pydantic import BaseModel
+
+from ..desktop_defs import OutputAction, OutputMessage
 from ..utils.local_file_storage import File
 from .constants import Actions, Statuses
 
@@ -35,20 +39,28 @@ class AnswerBtn:
 
 
 class BaseAnswer(abc.ABC):
+    @abc.abstractmethod
     def to_dict(self) -> dict:
         pass
 
+    @abc.abstractmethod
+    def to_output_obj(self) -> BaseModel:
+        pass
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class Message(BaseAnswer):
     content: str
     buttons: tuple[AnswerBtn, ...] = ()
     duration: datetime.timedelta | None = None
     cost: float | None = None
     total_tokens: int | None = None
+    uuid: str = dataclasses.field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: int = dataclasses.field(default_factory=time.time_ns)
 
     def to_dict(self) -> dict:
         return {
+            'uuid': self.uuid,
             'type': 'message',
             'from': 'bot',
             'body': {
@@ -61,8 +73,11 @@ class Message(BaseAnswer):
                 button.to_dict()
                 for button in self.buttons
             ],
-            'timestamp': time.time_ns(),
+            'timestamp': self.timestamp,
         }
+
+    def to_output_obj(self) -> OutputMessage:
+        return OutputMessage.model_validate(self.to_dict())
 
 
 @dataclasses.dataclass
@@ -77,6 +92,9 @@ class Action(BaseAnswer):
             'payload': self.payload,
             'timestamp': time.time_ns(),
         }
+
+    def to_output_obj(self) -> OutputAction:
+        return OutputAction.model_validate(self.to_dict())
 
 
 class Discussion:
