@@ -8,9 +8,9 @@ function Message({message, addNotification, callButtonCallback, deleteMessage}) 
         await addNotification('Copied')
     }
 
-    const deleteCurrentMessage = async () => {
-        await deleteMessage(message.uuid)
-    }
+    // const deleteCurrentMessage = async () => {
+    //     await deleteMessage(message.uuid)
+    // }
 
     const controllers = (
         <div className="message-controllers">

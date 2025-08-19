@@ -2,12 +2,12 @@ import abc
 import logging
 from io import BytesIO
 
-from ..models.openai.base import BaseDrawer, Dalle, GptImage
+from ..models.openai.base import BaseDrawer, GPTImage
 from ..utils.local_file_storage import LocalFileStorage, get_file_storage
 from .base import BaseDialog, DialogError, Message, Request
 
 
-class BaseDrawer(BaseDialog, abc.ABC):
+class BaseDrawerDialog(BaseDialog, abc.ABC):
     model: type[BaseDrawer]
     file_storage: LocalFileStorage
 
@@ -50,9 +50,5 @@ class BaseDrawer(BaseDialog, abc.ABC):
         await request.discussion.answer(Message(content=f'![Image]({response.url})'))
 
 
-class DalleDialog(BaseDrawer):
-    model = Dalle
-
-
-class GptImageDialog(BaseDrawer):
-    model = GptImage
+class GptImageDialog(BaseDrawerDialog):
+    model = GPTImage

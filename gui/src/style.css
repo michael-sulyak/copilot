@@ -528,3 +528,17 @@ blockquote {
 .message .file-attachment-body {
     margin-right: 0;
 }
+
+/* Code blocks (copy button) */
+.btn-copy {
+    background: var(--text-color);
+    color: var(--primary-color);
+    opacity: 0.1;
+    transition: opacity var(--small-animation-duration);
+}
+
+.btn-copy:hover {
+    background: var(--text-color);
+    color: var(--primary-color);
+    opacity: 0.3;
+}

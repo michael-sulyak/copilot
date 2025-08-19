@@ -4,8 +4,8 @@ import logging
 import typing
 from functools import cached_property
 
-from ...models.openai.base import BaseGPT, GPTMessage, GPTResponse
-from ...models.openai.constants import GPTBehaviour, GPTRoles
+from ...models.openai.base import BaseLLM, LLMMessage, LLMResponse
+from ...models.openai.constants import LLMMessageRoles
 from ...utils.common import escape_markdown, gen_optimized_json
 from ...utils.text_processing import remove_triple_backticks
 from ..base import AnswerBtn, Discussion, Message
@@ -25,14 +25,14 @@ class MessageGroup(abc.ABC):
 class TelegramMessageAggregator:
     _message_extractor: TelegramMessageExtractor
     _unprocessed_message_iter: typing.Iterator | None = None
-    _gpt_model: BaseGPT
+    _gpt_model: BaseLLM
     _is_inited: bool
     _prompt_for_aggregation: str
     _grouping: typing.Callable | None
 
     def __init__(
         self, *,
-        gpt_model: BaseGPT,
+        gpt_model: BaseLLM,
         message_extractor: TelegramMessageExtractor,
         prompt_for_aggregation: str,
         grouping: typing.Callable | None = None,
@@ -122,7 +122,7 @@ class TelegramMessageAggregator:
         }
 
     @staticmethod
-    def _prepare_answer_for_gpt_response(group: MessageGroup | None, gpt_response: GPTResponse) -> Message:
+    def _prepare_answer_for_gpt_response(group: MessageGroup | None, gpt_response: LLMResponse) -> Message:
         content = remove_triple_backticks(gpt_response.content)
 
         if group:
@@ -147,10 +147,8 @@ class TelegramMessageAggregator:
             buttons=(AnswerBtn(name='Yes', callback='send_news'),),
         )
 
-    async def _process_via_model(self, content: str) -> GPTResponse:
+    async def _process_via_model(self, content: str) -> LLMResponse:
         return await self._gpt_model.process(
-            messages=(GPTMessage(role=GPTRoles.USER, content=content),),
+            messages=(LLMMessage(role=LLMMessageRoles.USER, content=content),),
             check_total_length=True,
-            temperature=GPTBehaviour.ANALYTICAL['temperature'],
-            top_p=GPTBehaviour.ANALYTICAL['top_p'],
         )

@@ -31,7 +31,7 @@ class InputMessage(BaseModel):
     __ui__: dict | None = None  # It doesn't matter on backend side.
 
     class Config:
-        allow_population_by_field_name = True
+        validate_by_name = True
 
     @property
     def is_callback(self) -> bool:
@@ -47,7 +47,7 @@ class OutputMessage(BaseModel):
     timestamp: float
 
     class Config:
-        allow_population_by_field_name = True
+        validate_by_name = True
 
 
 class OutputAction(BaseModel):
@@ -57,4 +57,4 @@ class OutputAction(BaseModel):
     timestamp: float
 
     class Config:
-        allow_population_by_field_name = True
+        validate_by_name = True

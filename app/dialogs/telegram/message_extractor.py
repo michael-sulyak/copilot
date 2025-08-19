@@ -1,7 +1,6 @@
 import dataclasses
 import logging
 import typing
-from functools import lru_cache
 
 import telethon.tl.types
 from telethon import TelegramClient
@@ -14,22 +13,12 @@ from telethon.tl.functions.messages import (
     ReadDiscussionRequest,
 )
 
-from ... import config
 from ...utils.common import escape_markdown
 from ..base import Discussion, Message
+from .utils import get_telegram_client, init_telegram_client
 
 
 # Note: https://my.telegram.org/apps
-
-
-@lru_cache
-def get_telegram_client() -> TelegramClient:
-    return TelegramClient(
-        session='bot',
-        api_id=config.TELEGRAM_API_ID,
-        api_hash=config.TELEGRAM_API_HASH,
-        system_version='4.16.30-vxCUSTOM',  # https://github.com/LonamiWebs/Telethon/issues/4051
-    )
 
 
 @dataclasses.dataclass
@@ -73,11 +62,7 @@ class TelegramMessageExtractor:
         self._key_words = key_words
 
     async def init(self) -> None:
-        if not self._client.is_connected():
-            await self._client.connect()
-
-        if not await self._client.is_user_authorized():
-            await self._client.start()
+        await init_telegram_client(self._client)
 
     async def iter_messages(self, *, discussion: Discussion) -> typing.AsyncGenerator:
         sources = [source async for source in self._iter_target_sources()]

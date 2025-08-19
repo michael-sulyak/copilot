@@ -1,8 +1,8 @@
 import logging
 
 from ..memory import BaseMemory
-from ..models.openai.base import BaseGPT, GPTMessage
-from ..models.openai.constants import NOTSET, GPTRoles
+from ..models.openai.base import BaseLLM, LLMMessage
+from ..models.openai.constants import NOTSET, LLMMessageRoles
 from ..utils.file_processor import FileProcessor
 from .base import BaseDialog, DialogError, Message, Request
 from .profiles import BaseProfile
@@ -11,13 +11,13 @@ from .profiles import BaseProfile
 class Dialog(BaseDialog):
     profile: BaseProfile
     memory: BaseMemory
-    model: BaseGPT
+    model: BaseLLM
 
     def __init__(
         self, *,
         profile: BaseProfile,
         memory: BaseMemory,
-        model: BaseGPT,
+        model: BaseLLM,
         files_are_supported: bool = False,
     ) -> None:
         self.profile = profile
@@ -26,7 +26,7 @@ class Dialog(BaseDialog):
         self.files_are_supported = files_are_supported
 
         if context := self.profile.get_context():
-            self.memory.add_context(GPTMessage(role=GPTRoles.SYSTEM, content=context))
+            self.memory.add_context(LLMMessage(role=LLMMessageRoles.SYSTEM, content=context))
 
     async def handle(self, request: Request) -> None:
         attachments = []
@@ -45,8 +45,8 @@ class Dialog(BaseDialog):
             await request.discussion.set_text_status('Parsing attachments...')
 
             for attachment in attachments:
-                self.memory.add_message(GPTMessage(
-                    role=GPTRoles.SYSTEM,
+                self.memory.add_message(LLMMessage(
+                    role=LLMMessageRoles.SYSTEM,
                     content=(
                         f'There has been provided an attachment '
                         f'with name `{attachment.name}` and MIME type `{attachment.mime_type}`.'
@@ -60,8 +60,8 @@ class Dialog(BaseDialog):
         if base64_images and not self.model.has_vision:
             raise DialogError('The models does not support vision.')
 
-        self.memory.add_message(GPTMessage(
-            role=GPTRoles.USER,
+        self.memory.add_message(LLMMessage(
+            role=LLMMessageRoles.USER,
             content=request.content,
             base64_images=tuple(base64_images),
         ))
@@ -77,17 +77,14 @@ class Dialog(BaseDialog):
 
         params = {}
 
-        if not self.model.is_reasoning and not self.model.is_searching:
+        if not self.model.is_reasoning:
             if self.profile.temperature is not NOTSET:
                 params['temperature'] = self.profile.temperature
 
             if self.profile.top_p is not NOTSET:
                 params['top_p'] = self.profile.top_p
 
-                if self.profile.top_p is not NOTSET:
-                    params['top_p'] = self.profile.top_p
-
-        if self.model.is_reasoning:
+        if self.model.is_reasoning and self.profile.reasoning_effort is not NOTSET:
             params['reasoning_effort'] = self.profile.reasoning_effort
 
         try:
@@ -99,20 +96,10 @@ class Dialog(BaseDialog):
             logging.exception(e)
             raise DialogError(str(e)) from e
 
-        self.memory.add_message(GPTMessage(role=GPTRoles.ASSISTANT, content=response.content))
-
-        content = response.content
-
-        if self.model.is_searching and response.annotations:
-            additional_info = '\n\n---\n\n**Sources:**\n\n'
-
-            for annotation in response.annotations:
-                additional_info += f'* [{annotation["url_citation"]["title"]}])({annotation["url_citation"]['url']})\n'
-
-            content += additional_info
+        self.memory.add_message(LLMMessage(role=LLMMessageRoles.ASSISTANT, content=response.content))
 
         return Message(
-            content=content,
+            content=response.content,
             duration=response.duration,
             cost=response.cost,
             total_tokens=response.total_tokens,

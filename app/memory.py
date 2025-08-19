@@ -1,20 +1,20 @@
 import abc
 
 from .dialogs.base import Roles
-from .models.openai.base import GPTMessage
+from .models.openai.base import LLMMessage
 
 
 class BaseMemory(abc.ABC):
-    def add_context(self, message: GPTMessage) -> None:
+    def add_context(self, message: LLMMessage) -> None:
         pass
 
-    def add_message(self, message: GPTMessage) -> None:
+    def add_message(self, message: LLMMessage) -> None:
         pass
 
-    def pop_message(self) -> GPTMessage:
+    def pop_message(self) -> LLMMessage:
         pass
 
-    def get_buffer(self) -> list[GPTMessage]:
+    def get_buffer(self) -> list[LLMMessage]:
         pass
 
     def clear(self) -> None:
@@ -23,18 +23,18 @@ class BaseMemory(abc.ABC):
 
 class Memory(BaseMemory):
     _max_user_messages: int
-    _messages: list[GPTMessage]
+    _messages: list[LLMMessage]
     _count_of_user_messages: int = 0
-    _context: GPTMessage | None = None
+    _context: LLMMessage | None = None
 
     def __init__(self, *, max_user_messages: int) -> None:
         self._max_user_messages = max_user_messages
         self._messages = []
 
-    def add_context(self, message: GPTMessage) -> None:
+    def add_context(self, message: LLMMessage) -> None:
         self._context = message
 
-    def add_message(self, message: GPTMessage) -> None:
+    def add_message(self, message: LLMMessage) -> None:
         self._messages.append(message)
 
         if message.role == Roles.USER:
@@ -43,13 +43,13 @@ class Memory(BaseMemory):
             if self._count_of_user_messages > self._max_user_messages:
                 self._reduce_messages()
 
-    def pop_message(self) -> GPTMessage:
+    def pop_message(self) -> LLMMessage:
         if self._messages[-1].role == Roles.USER:
             self._count_of_user_messages -= 1
 
         return self._messages.pop()
 
-    def get_buffer(self) -> list[GPTMessage]:
+    def get_buffer(self) -> list[LLMMessage]:
         if self._context:
             return [self._context, *self._messages]
 

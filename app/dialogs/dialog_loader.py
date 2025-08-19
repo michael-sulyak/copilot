@@ -3,12 +3,13 @@ import typing
 import yaml
 
 from ..memory import Memory
-from ..models.openai.base import AVAILABLE_GPT_MODELS
+from ..models.openai.base import AVAILABLE_LLM_MODELS_MAP
 from .base import BaseDialog
-from .drawer_chat import DalleDialog, GptImageDialog
-from .gpt_chat import Dialog
+from .drawer_chat import GptImageDialog
 from .greetings import GreetingsDialog
+from .llm_chat import Dialog
 from .profiles import PROFILES
+from .telegram.content_generator import TelegramContentGeneratorDialog
 from .telegram.dialogs import gen_telegram_folder_reader
 
 
@@ -33,17 +34,13 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
     dialog_type = dialog_data.get('type')
     name = dialog_data.get('name')
     model_name = dialog_data.get('model')
-    models_map = {
-        model.showed_model_name: model
-        for model in AVAILABLE_GPT_MODELS
-    }
 
     if dialog_type == 'chat':
         profile_slug = dialog_data.get('profile')
         profile = PROFILES.get(profile_slug)
         memory_data = dialog_data.get('memory', {})
         memory = Memory(**memory_data)
-        model = models_map[model_name]()
+        model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         files_supported = dialog_data.get('files_supported', False)
         return name, LazyDialog(lambda: Dialog(
             profile=profile,
@@ -52,17 +49,22 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
             files_are_supported=files_supported,
         ))
 
-    if dialog_type == 'dalle':
-        return name, DalleDialog()
-
     if dialog_type == 'gpt_image':
-        return name, GptImageDialog()
+        return name, LazyDialog(lambda: GptImageDialog())
 
     if dialog_type == 'greetings':
-        return name, GreetingsDialog()
+        return name, LazyDialog(lambda: GreetingsDialog())
+
+    if dialog_type == 'telegram_content_generator':
+        model = AVAILABLE_LLM_MODELS_MAP[model_name]()
+        extra = dialog_data.get('extra', {})
+        return name, LazyDialog(lambda: TelegramContentGeneratorDialog(
+            model=model,
+            **extra,
+        ))
 
     if dialog_type == 'telegram_folder_reader':
-        model = models_map[model_name]()
+        model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         extra = dialog_data.get('extra', {})
         return name, LazyDialog(lambda: gen_telegram_folder_reader(
             gpt_model=model,

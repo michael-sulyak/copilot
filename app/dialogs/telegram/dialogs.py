@@ -1,7 +1,7 @@
 import logging
 import typing
 
-from ...models.openai.base import BaseGPT
+from ...models.openai.base import BaseLLM
 from ...utils.common import escape_markdown
 from ..base import AnswerBtn, BaseDialog, Message, Request
 from .message_aggregator import MessageGroup, TelegramMessageAggregator
@@ -52,7 +52,7 @@ class TelegramMessageDialog(BaseDialog):
 
 def gen_telegram_folder_reader(
     *,
-    gpt_model: BaseGPT,
+    gpt_model: BaseLLM,
     folder_name: str,
     prompt_for_aggregation: str,
     topics_to_exclude: typing.Sequence[str] = (),

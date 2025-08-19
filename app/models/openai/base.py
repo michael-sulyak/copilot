@@ -13,13 +13,21 @@ import openai
 import yaml
 from openai import APIConnectionError, AsyncOpenAI
 from openai.lib.azure import AsyncAzureOpenAI
-from openai.types.chat import ChatCompletion
+from openai.types import Reasoning
+from openai.types.responses import (
+    Response,
+    ResponseFormatTextJSONSchemaConfigParam,
+    ResponseFunctionToolCall,
+    ResponseOutputText,
+    ResponseTextConfigParam,
+)
+from pydantic import BaseModel
 
 from ... import config
 from ...utils.common import chunk_generator
 from ...utils.local_file_storage import File
-from .constants import NOTSET, GPTContentTypes, GPTFuncParamTypes, GPTRoles
-from .utils import num_tokens_from_messages, prepare_gpt_response_content
+from .constants import NOTSET, LLMContentTypes, LLMMessageRoles, LLMToolParamTypes
+from .utils import num_tokens_from_messages, prepare_llm_response_content
 
 
 @dataclasses.dataclass(frozen=True)
@@ -69,34 +77,33 @@ class OpenAiConfig:
 
 
 @dataclasses.dataclass(frozen=True)
-class GPTResponse:
+class LLMResponse:
     content: str | None
-    func_call: typing.Optional['GPTFuncCall']
+    tool_calls: list['LLMToolCall']
     duration: datetime.timedelta
     cost: float
     total_tokens: int
-    original_response: ChatCompletion
-    annotations: list[dict] | None = None
+    original_response: Response
     generated_at: datetime.datetime = dataclasses.field(
         default_factory=datetime.datetime.now,
     )
 
-    def to_gpt_message(self) -> 'GPTMessage':
-        if self.func_call:
-            return GPTMessage(
-                role=GPTRoles.FUNCTION,
-                name=self.func_call.name,
-                content=json.dumps(self.func_call.args),
+    def to_llm_message(self) -> 'LLMMessage':
+        if self.tool_calls:
+            return LLMMessage(
+                role=LLMMessageRoles.FUNCTION,
+                name=self.tool_calls.name,
+                content=json.dumps(self.tool_calls.args),
             )
 
-        return GPTMessage(
-            role=GPTRoles.ASSISTANT,
+        return LLMMessage(
+            role=LLMMessageRoles.ASSISTANT,
             content=self.content,
         )
 
 
 @dataclasses.dataclass(frozen=True)
-class GPTMessage:
+class LLMMessage:
     role: str
     content: str
     base64_images: tuple[str, ...] | None = None
@@ -109,9 +116,9 @@ class GPTMessage:
         if 'dump' in self._cached_dump:
             return self._cached_dump['dump']
 
-        assert self.name is None or self.role == GPTRoles.FUNCTION
+        assert self.name is None or self.role == LLMMessageRoles.FUNCTION
 
-        if self.role == GPTRoles.FUNCTION:
+        if self.role == LLMMessageRoles.FUNCTION:
             result = {
                 'role': self.role,
                 'content': self.content,
@@ -122,16 +129,14 @@ class GPTMessage:
                 'role': self.role,
                 'content': [
                     {
-                        'type': GPTContentTypes.TEXT,
+                        'type': LLMContentTypes.TEXT,
                         'text': self.content,
                     },
                     *(
                         {
-                            'type': GPTContentTypes.IMAGE_URL,
-                            'image_url': {
-                                'url': base64_image,
-                                'detail': 'high',
-                            },
+                            'type': LLMContentTypes.IMAGE,
+                            'image_url': base64_image,
+                            'detail': 'high',
                         }
                         for base64_image in self.base64_images
                     ),
@@ -149,7 +154,7 @@ class GPTMessage:
 
 
 @dataclasses.dataclass(frozen=True)
-class GPTFuncParam:
+class LLMToolParam:
     name: str
     type: str
     description: str
@@ -158,7 +163,7 @@ class GPTFuncParam:
 
 
 @dataclasses.dataclass(frozen=True)
-class GPTFuncCall:
+class LLMToolCall:
     name: str
     args: dict[str, typing.Any] | None
     raw_args: str | None
@@ -166,10 +171,10 @@ class GPTFuncCall:
 
 
 @dataclasses.dataclass(frozen=True)
-class GPTFunc:
+class LLMTool:
     name: str
     description: str
-    parameters: tuple[GPTFuncParam, ...]
+    parameters: tuple[LLMToolParam, ...]
 
     def dump(self) -> dict:
         properties = {}
@@ -189,9 +194,10 @@ class GPTFunc:
 
         return {
             'name': self.name,
+            'type': 'function',
             'description': self.description,
             'parameters': {
-                'type': GPTFuncParamTypes.OBJECT,
+                'type': LLMToolParamTypes.OBJECT,
                 'properties': properties,
                 'required': required,
             },
@@ -199,27 +205,23 @@ class GPTFunc:
 
 
 @dataclasses.dataclass(frozen=True)
-class GPTRequest:
+class LLMRequest:
     model: str
-    messages: typing.Sequence[GPTMessage]
-    n: int | NOTSET = NOTSET
+    messages: typing.Sequence[LLMMessage]
     temperature: float | NOTSET = NOTSET
     top_p: float | NOTSET = NOTSET
-    response_format: str | NOTSET = NOTSET
-    functions: tuple[GPTFunc, ...] | NOTSET = NOTSET
+    response_format: BaseModel | NOTSET = NOTSET
+    tools: tuple[LLMTool, ...] | NOTSET = NOTSET
     reasoning_effort: str | NOTSET = NOTSET
 
     def dump(self) -> dict:
         result = {
             'model': self.model,
-            'messages': [
+            'input': [
                 message.dump()
                 for message in self.messages
             ],
         }
-
-        if self.n is not NOTSET:
-            result['n'] = self.n
 
         if self.temperature is not NOTSET:
             result['temperature'] = self.temperature
@@ -228,24 +230,30 @@ class GPTRequest:
             result['top_p'] = self.top_p
 
         if self.response_format is not NOTSET:
-            result['response_format'] = self.response_format
+            json_schema = self.response_format.model_json_schema()
+            json_schema['additionalProperties'] = False
+
+            result['text'] = ResponseTextConfigParam(format=ResponseFormatTextJSONSchemaConfigParam(
+                name=self.response_format.__name__,
+                type='json_schema',
+                description=self.response_format.__doc__ or '',
+                schema=json_schema,
+                strict=True,
+            ))
 
         if self.reasoning_effort is not NOTSET:
-            result['reasoning_effort'] = self.reasoning_effort
+            result['reasoning'] = Reasoning(effort=self.reasoning_effort)
 
-        if self.functions is not NOTSET:
+        if self.tools is not NOTSET:
             result['tools'] = [
-                {
-                    'type': 'function',
-                    'function': function.dump(),
-                }
-                for function in self.functions
+                function.dump()
+                for function in self.tools
             ]
 
         return result
 
 
-class BaseGPT:
+class BaseLLM:
     showed_model_name: str
     model_name: str
     max_tokens: int
@@ -256,28 +264,26 @@ class BaseGPT:
     config: OpenAiConfig
     has_vision: bool = False
     is_reasoning: bool = False
-    is_searching: bool = False
 
     @classmethod
     async def process(cls,
-                      messages: typing.Sequence[GPTMessage], *,
+                      messages: typing.Sequence[LLMMessage], *,
                       temperature: float | NOTSET = NOTSET,
                       top_p: float | NOTSET = NOTSET,
                       check_total_length: bool = False,
-                      functions: tuple[GPTFunc, ...] | NOTSET = NOTSET,
-                      response_format: str | NOTSET = NOTSET,
+                      tools: tuple[LLMTool, ...] | NOTSET = NOTSET,
+                      response_format: type[BaseModel] | NOTSET = NOTSET,
                       reasoning_effort: str | NOTSET = NOTSET,
-                      _count_of_repeats: int = 0) -> GPTResponse:
+                      _count_of_repeats: int = 0) -> LLMResponse:
         started_at = datetime.datetime.now()
 
-        gpt_request = GPTRequest(
+        llm_request = LLMRequest(
             model=cls.model_name,
             temperature=temperature,
             top_p=top_p,
             messages=messages,
-            n=NOTSET if cls.is_searching else 1,
             response_format=response_format,
-            functions=functions,
+            tools=tools,
             reasoning_effort=reasoning_effort,
         )
 
@@ -297,9 +303,7 @@ class BaseGPT:
             backoff = 2 ** attempt
 
             try:
-                response = await cls.config.client.chat.completions.create(
-                    **gpt_request.dump(),
-                )
+                response = await cls.config.client.responses.create(**llm_request.dump())
             except openai.RateLimitError as e:
                 logging.warning(e)
 
@@ -328,52 +332,50 @@ class BaseGPT:
 
         processing_time = datetime.datetime.now() - started_at
         cost = (
-            response.usage.prompt_tokens * cls.input_price
-            + response.usage.completion_tokens * cls.output_price
+            response.usage.input_tokens * cls.input_price
+            + response.usage.output_tokens * cls.output_price
         )
 
         logging.info('Processing time: %s', processing_time)
         logging.info('Cost: %s$', round(cost, 6))
 
-        if raw_func_call := response.choices[0].message.function_call:
-            raw_func_args = raw_func_call['arguments']
+        llm_tool_calls = []
+        content = None
+        target_response_output = response.output[-1]
+
+        if isinstance(target_response_output, ResponseFunctionToolCall):
+            tool_call = target_response_output
 
             try:
-                func_args = json.loads(raw_func_call['arguments'])
+                func_args = json.loads(tool_call.arguments)
             except json.JSONDecodeError as e:
                 logging.warning(e)
 
-                func_is_valid = False
+                call_is_valid = False
                 func_args = None
             else:
-                func_is_valid = True
+                call_is_valid = True
 
-            gpt_func_call = GPTFuncCall(
-                name=raw_func_call['name'],
+            llm_tool_calls.append(LLMToolCall(
+                name=tool_call.name,
                 args=func_args,
-                raw_args=raw_func_args,
-                is_valid=func_is_valid,
-            )
-        else:
-            gpt_func_call = None
+                raw_args=tool_call.arguments,
+                is_valid=call_is_valid,
+            ))
+        elif target_response_output.content and isinstance(target_response_output.content[0], ResponseOutputText):
+            content = prepare_llm_response_content(target_response_output.content[0].text)
 
-        annotations = response.choices[0].message.annotations
-
-        if annotations:
-            annotations = [annotation.model_dump() for annotation in annotations]
-
-        return GPTResponse(
-            content=prepare_gpt_response_content(response.choices[0].message.content),
-            func_call=gpt_func_call,
+        return LLMResponse(
+            content=content,
+            tool_calls=llm_tool_calls,
             duration=processing_time,
             cost=cost,
             total_tokens=response.usage.total_tokens,
             original_response=response,
-            annotations=annotations,
         )
 
     @classmethod
-    def count_tokens(cls, messages: typing.Sequence[GPTMessage]) -> int:
+    def count_tokens(cls, messages: typing.Sequence[LLMMessage]) -> int:
         return num_tokens_from_messages(
             tuple(
                 message.dump()
@@ -385,7 +387,7 @@ class BaseGPT:
 
     @classmethod
     def count_tokens_in_text(cls, text: str) -> int:
-        return cls.count_tokens((GPTMessage(role=GPTRoles.USER, content=text),))
+        return cls.count_tokens((LLMMessage(role=LLMMessageRoles.USER, content=text),))
 
     @classmethod
     def has_enough_tokens_to_answer(cls, count_of_tokens: int, *, min_response_volume: float | None = None) -> bool:
@@ -401,37 +403,7 @@ OPENAI_CONFIG = OpenAiConfig(
 )
 
 
-# class GPT4o(BaseGPT):
-#     showed_model_name = 'GPT4o'
-#     model_name = 'gpt-4o-2024-11-20'
-#     max_tokens = 128_000
-#     input_price = 2.5 / 1_000_000
-#     output_price = 10 / 1_000_000
-#     config = OPENAI_CONFIG
-#     has_vision = True
-#
-#
-# class GPT4mini(BaseGPT):
-#     showed_model_name = 'GPT4o mini'
-#     model_name = 'gpt-4o-mini-2024-07-18'
-#     max_tokens = 128_000
-#     input_price = 0.15 / 1_000_000
-#     output_price = 0.6 / 1_000_000
-#     config = OPENAI_CONFIG
-#     has_vision = True
-#
-#
-# class GPTo3mini(BaseGPT):
-#     showed_model_name = 'GPTo3 mini'
-#     model_name = 'o3-mini-2025-01-31'
-#     max_tokens = 200_000
-#     input_price = 1.1 / 1_000_000
-#     output_price = 4.4 / 1_000_000
-#     config = OPENAI_CONFIG
-#     is_reasoning = True
-
-
-def load_gpt_models_config() -> typing.Generator:
+def load_llm_models_config() -> typing.Generator:
     with open(config.MODELS_PATH) as file:
         models_config = yaml.safe_load(file)
 
@@ -440,10 +412,14 @@ def load_gpt_models_config() -> typing.Generator:
     for model_info in model_infos:
         model_info['input_price'] = float(model_info['input_price'])
         model_info['output_price'] = float(model_info['output_price'])
-        yield type(model_info['showed_model_name'], (BaseGPT,), {**model_info, 'config': OPENAI_CONFIG})
+        yield type(model_info['showed_model_name'], (BaseLLM,), {**model_info, 'config': OPENAI_CONFIG})
 
 
-AVAILABLE_GPT_MODELS = tuple(load_gpt_models_config())
+AVAILABLE_LLM_MODELS = tuple(load_llm_models_config())
+AVAILABLE_LLM_MODELS_MAP = {
+    model.showed_model_name: model
+    for model in AVAILABLE_LLM_MODELS
+}
 
 
 @dataclasses.dataclass
@@ -498,12 +474,13 @@ class Embedding:
 class DrawerResponse:
     url: str | None = None
     data: bytes | None = None
-    cost: float = 0
+    cost: float | None = None
 
 
 class BaseDrawer(abc.ABC):
     model_name: str
-    price: float
+    input_price: float
+    output_price: float
     max_prompt_length: int
     size: str
     has_vision: bool
@@ -528,9 +505,15 @@ class BaseDrawer(abc.ABC):
         else:
             image_bytes = None
 
+        cost = 0
+        if response.usage:
+            cost += response.usage.input_tokens * cls.input_price
+            cost += response.usage.output_tokens * cls.output_price
+
         return DrawerResponse(
             url=response.data[0].url,
             data=image_bytes,
+            cost=cost,
         )
 
     @classmethod
@@ -562,18 +545,10 @@ class BaseDrawer(abc.ABC):
         )
 
 
-class Dalle(BaseDrawer):
-    model_name = 'dall-e-3'
-    price = 0.12
-    max_prompt_length = 1_000
-    size = '1792x1024'
-    has_vision = False
-    config = OPENAI_CONFIG
-
-
-class GptImage(BaseDrawer):
+class GPTImage(BaseDrawer):
     model_name = 'gpt-image-1'
-    price = 0.25
+    input_price = 10 / 1_000_000
+    output_price = 40 / 1_000_000
     max_prompt_length = 10_000
     size = '1536x1024'
     has_vision = True
@@ -588,7 +563,8 @@ class TranscriberResponse:
 
 class BaseTranscriber(abc.ABC):
     model_name: str
-    price: float
+    input_price: float
+    output_price: float
     config: OpenAiConfig
 
     @classmethod
@@ -601,18 +577,37 @@ class BaseTranscriber(abc.ABC):
 
         return TranscriberResponse(
             text=response.text,
-            # cost=response.duration / 60 * cls.price,
             cost=0,
         )
 
 
-class Whisper(BaseTranscriber):
-    model_name = 'whisper-1'
-    price = 0.006
-    config = OPENAI_CONFIG
-
-
 class Gpt4oTranscriber(BaseTranscriber):
     model_name = 'gpt-4o-transcribe'
-    price = 0.006
+    input_price = 2.5 / 1_000_000
+    output_price = 10 / 1_000_000
     config = OPENAI_CONFIG
+
+
+@dataclasses.dataclass(frozen=True)
+class ModeratorResponse:
+    is_flagged: bool
+
+
+class BaseModerator(abc.ABC):
+    model_name: str
+    config: OpenAiConfig
+
+    @classmethod
+    async def process(cls, text: str) -> ModeratorResponse:
+        response = await cls.config.client.moderations.create(
+            model=cls.model_name,
+            input=text,
+        )
+
+        return ModeratorResponse(
+            is_flagged=response.results[0].flagged,
+        )
+
+
+class GPTModerator(BaseModerator):
+    model_name = 'omni-moderation-latest'
