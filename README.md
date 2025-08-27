@@ -29,6 +29,7 @@ make install
 ```
 
 This command will install both Python and JavaScript dependencies, build the frontend, and set up a desktop icon.
+But before running this command you need to install `npm` and `poetry`.
 
 ## Configuration
 

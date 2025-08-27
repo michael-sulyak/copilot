@@ -1,22 +1,29 @@
 gpt_models:
-  - showed_model_name: "GPT4o"
-    model_name: "gpt-4o-2024-11-20"
-    max_tokens: 128000
-    input_price: 2.5e-6         # 2.5 / 1_000_000
-    output_price: 1e-5          # 10 / 1_000_000
+  - showed_model_name: "GPT5"
+    model_name: "gpt-5"
+    max_tokens: 400000
+    input_price: 1.25e-6
+    output_price: 10e-6
+    has_vision: true
+    is_reasoning: true
+  - showed_model_name: "GPT4.1"
+    model_name: "gpt-4.1-2025-04-14"
+    max_tokens: 1000000
+    input_price: 2e-6
+    output_price: 8e-06
     has_vision: true
     is_reasoning: false
-  - showed_model_name: "GPT4o mini"
-    model_name: "gpt-4o-mini-2024-07-18"
-    max_tokens: 128000
-    input_price: 1.5e-7         # 0.15 / 1_000_000
-    output_price: 6e-7          # 0.6 / 1_000_000
+  - showed_model_name: "GPT5 mini"
+    model_name: "gpt-5-mini"
+    max_tokens: 400000
+    input_price: 0.25e-6
+    output_price: 2e-6
     has_vision: true
-    is_reasoning: false
-  - showed_model_name: "GPTo3 mini"
-    model_name: "o3-mini-2025-01-31"
-    max_tokens: 200000
-    input_price: 1.1e-6         # 1.1 / 1_000_000
-    output_price: 4.4e-6        # 4.4 / 1_000_000
-    has_vision: false
+    is_reasoning: true
+  - showed_model_name: "GPT4.1 mini"
+    model_name: "gpt-4.1-mini"
+    max_tokens: 400000
+    input_price: 0.15e-6
+    output_price: 0.6e-6
+    has_vision: true
     is_reasoning: true

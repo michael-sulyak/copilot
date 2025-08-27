@@ -2,28 +2,36 @@ dialogs:
   - name: "Hello"
     type: "greetings"
 
-  - name: "Chat (GPT-3 mini)"
+  - name: "Chat (GPT-5 mini)"
     type: "chat"
     profile: "personal"
-    model: "GPTo3 mini"
+    model: "GPT5 mini"
     memory:
       max_user_messages: 20
     files_supported: true
 
-  - name: "Chat (GPT-4o)"
+  - name: "Chat (GPT-5)"
     type: "chat"
     profile: "personal"
-    model: "GPT4o"
+    model: "GPT5"
     memory:
       max_user_messages: 20
     files_supported: true
 
-  - name: "DALL·E"
-    type: "dalle"
+  - name: "Chat (GPT-4.1)"
+    type: "chat"
+    profile: "personal"
+    model: "GPT4.1"
+    memory:
+      max_user_messages: 20
+    files_supported: true
+
+  - name: "GPT Image"
+    type: "gpt_image"
 
   - name: "News Reader"
     type: "telegram_folder_reader"
-    model: "GPT4o mini"
+    model: "GPT5 mini"
     extra:
       folder_name: "News"
       prompt_for_aggregation: |
