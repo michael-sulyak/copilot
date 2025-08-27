@@ -163,7 +163,6 @@ cython_debug/
 .dev/
 bot.session
 bot.session-journal
-app/copilot/
 app/models/openai/resources/tiktoken_cache/
 configs/
 logs.txt

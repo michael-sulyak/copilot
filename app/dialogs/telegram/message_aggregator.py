@@ -101,7 +101,7 @@ class TelegramMessageAggregator:
         try:
             content = self._generate_content(chunk, group)
             response = await self._process_via_model(content)
-            return self._prepare_answer_for_gpt_response(group, response)
+            return self._prepare_answer_for_llm_response(group, response)
         except Exception as e:
             logging.exception(e)
             self._unprocessed_message_iter = iter(chunk)
@@ -122,8 +122,8 @@ class TelegramMessageAggregator:
         }
 
     @staticmethod
-    def _prepare_answer_for_gpt_response(group: MessageGroup | None, gpt_response: LLMResponse) -> Message:
-        content = remove_triple_backticks(gpt_response.content)
+    def _prepare_answer_for_llm_response(group: MessageGroup | None, llm_response: LLMResponse) -> Message:
+        content = remove_triple_backticks(llm_response.content)
 
         if group:
             prefix = ''.join(
@@ -135,9 +135,9 @@ class TelegramMessageAggregator:
 
         return Message(
             content=content,
-            duration=gpt_response.duration,
-            cost=gpt_response.cost,
-            total_tokens=gpt_response.total_tokens,
+            duration=llm_response.duration,
+            cost=llm_response.cost,
+            total_tokens=llm_response.total_tokens,
         )
 
     @staticmethod

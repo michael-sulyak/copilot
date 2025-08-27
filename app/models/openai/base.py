@@ -23,11 +23,11 @@ from openai.types.responses import (
 )
 from pydantic import BaseModel
 
-from ... import config
-from ...utils.common import chunk_generator
-from ...utils.local_file_storage import File
-from .constants import NOTSET, LLMContentTypes, LLMMessageRoles, LLMToolParamTypes
+from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTSET
 from .utils import num_tokens_from_messages, prepare_llm_response_content
+from ... import config
+from ...utils.common import chunk_generator, gen_optimized_json
+from ...utils.local_file_storage import File
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,6 +79,7 @@ class OpenAiConfig:
 @dataclasses.dataclass(frozen=True)
 class LLMResponse:
     content: str | None
+    parsed_content: BaseModel | None
     tool_calls: list['LLMToolCall']
     duration: datetime.timedelta
     cost: float
@@ -175,6 +176,7 @@ class LLMTool:
     name: str
     description: str
     parameters: tuple[LLMToolParam, ...]
+    func: typing.Callable | None = None
 
     def dump(self) -> dict:
         properties = {}
@@ -365,13 +367,158 @@ class BaseLLM:
         elif target_response_output.content and isinstance(target_response_output.content[0], ResponseOutputText):
             content = prepare_llm_response_content(target_response_output.content[0].text)
 
+        if response_format is NOTSET:
+            parsed_content = None
+        else:
+            parsed_content = response_format.model_validate_json(content)
+
         return LLMResponse(
             content=content,
+            parsed_content=parsed_content,
             tool_calls=llm_tool_calls,
             duration=processing_time,
             cost=cost,
             total_tokens=response.usage.total_tokens,
             original_response=response,
+        )
+
+    @classmethod
+    async def execute(
+        cls,
+        *,
+        messages: typing.Sequence[LLMMessage],
+        tools: tuple[LLMTool, ...],
+        temperature: float | NOTSET = NOTSET,
+        top_p: float | NOTSET = NOTSET,
+        reasoning_effort: str | NOTSET = NOTSET,
+        response_format: type[BaseModel] | NOTSET = NOTSET,
+        max_steps: int = 8,
+        check_total_length: bool = False,
+        stop_when: typing.Callable[[LLMToolCall, typing.Any], bool] | None = None,
+    ) -> LLMResponse:
+        """
+        Runs the model-tool loop:
+        - calls the model
+        - executes tool calls via `executors`
+        - feeds back function outputs
+        - repeats until assistant returns text or `stop_when` says to stop
+        Returns a final LLMResponse with aggregated cost/tokens and the last model message as content.
+        """
+
+        started_at = datetime.datetime.now()
+        total_cost = 0
+        total_tokens = 0
+        tool_trace: list[LLMToolCall] = []
+        history: list[LLMMessage] = list(messages)
+        last_raw_response: Response | None = None
+        executors_map = {
+            tool.name: tool.func
+            for tool in tools
+        }
+
+        for step in range(1, max_steps + 1):
+            current_tokens = cls.count_tokens(history)
+            if not cls.has_enough_tokens_to_answer(current_tokens):
+                raise openai.OpenAIError('There are too few tokens left to answer.')
+
+            step_response = await cls.process(
+                messages=tuple(history),
+                temperature=temperature,
+                top_p=top_p,
+                check_total_length=check_total_length,
+                tools=tools,
+                reasoning_effort=reasoning_effort,
+            )
+
+            total_cost += step_response.cost
+            total_tokens += step_response.total_tokens
+            last_raw_response = step_response.original_response
+
+            if step_response.tool_calls:
+                for call in step_response.tool_calls:
+                    tool_trace.append(call)
+
+                    history.append(LLMMessage(
+                        role=LLMMessageRoles.ASSISTANT,
+                        content=f'Execute tool: "{call.name}":\nArguments:\n{gen_optimized_json(call.args)}',
+                    ))
+
+                    exec_fn = executors_map.get(call.name)
+                    if not call.is_valid or exec_fn is None:
+                        # Tell the model we couldn't execute so it can self-correct
+                        history.append(LLMMessage(
+                            role=LLMMessageRoles.SYSTEM,
+                            content=f'ERROR: Tool "{call.name}" unavailable or arguments invalid. raw_args={call.raw_args}',
+                        ))
+                        continue
+
+                    try:
+                        maybe_coro = exec_fn(call)
+                        result_value = await maybe_coro if asyncio.iscoroutine(maybe_coro) else maybe_coro
+                    except Exception:
+                        logging.exception(f'Exception while executing tool "{call.name}"')
+                        result_value = f'ERROR: Unexpected exception while executing tool "{call.name}"'
+
+                    result_content = f'Executed tool: "{call.name}":\nResult:\n{result_value}'
+
+                    history.append(LLMMessage(
+                        role=LLMMessageRoles.SYSTEM,
+                        content=result_content,
+                    ))
+
+                    if stop_when and stop_when(call, result_value):
+                        final_turn = await cls.process(
+                            messages=tuple(history),
+                            temperature=temperature,
+                            top_p=top_p,
+                            check_total_length=check_total_length,
+                            tools=tools,
+                            response_format=response_format,
+                            reasoning_effort=reasoning_effort,
+                        )
+                        total_cost += final_turn.cost
+                        total_tokens += final_turn.total_tokens
+
+                        return LLMResponse(
+                            content=final_turn.content,
+                            parsed_content=final_turn.parsed_content if response_format is not NOTSET else None,
+                            tool_calls=tool_trace,
+                            duration=datetime.datetime.now() - started_at,
+                            cost=total_cost,
+                            total_tokens=total_tokens,
+                            original_response=final_turn.original_response,
+                        )
+
+                continue
+            else:
+                history.append(LLMMessage(
+                    role=LLMMessageRoles.ASSISTANT,
+                    content=step_response.content,
+                ))
+
+            if step_response.content is not None:
+                parsed_content = None
+                if response_format is not NOTSET:
+                    parsed_content = response_format.model_validate_json(step_response.content)
+
+                return LLMResponse(
+                    content=step_response.content,
+                    parsed_content=parsed_content,
+                    tool_calls=tool_trace,
+                    duration=datetime.datetime.now() - started_at,
+                    cost=total_cost,
+                    total_tokens=total_tokens,
+                    original_response=last_raw_response or step_response.original_response,
+                )
+
+        return LLMResponse(
+            content=None,
+            parsed_content=None,
+            tool_calls=tool_trace,
+            duration=datetime.datetime.now() - started_at,
+            cost=total_cost,
+            total_tokens=total_tokens,
+            original_response=last_raw_response,
         )
 
     @classmethod

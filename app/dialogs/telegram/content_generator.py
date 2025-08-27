@@ -5,14 +5,13 @@ import typing
 from dataclasses import dataclass
 from functools import cached_property
 from io import BytesIO
-from typing import Any
 
 from pydantic import BaseModel
 from telethon.tl.types import Channel
 
 from app.dialogs.base import AnswerBtn, BaseDialog, Discussion, Message, Request
 from app.dialogs.telegram.utils import get_telegram_client, init_telegram_client
-from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMTool, LLMToolParam
+from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, LLMTool, LLMToolCall, LLMToolParam
 from app.models.openai.constants import LLMMessageRoles, LLMToolParamTypes
 from app.utils.common import gen_optimized_json
 from app.utils.local_file_storage import LocalFileStorage, get_file_storage
@@ -64,6 +63,10 @@ class DraftPost:
 
 
 class ContentGenerator:
+    model: BaseLLM
+    status_updater: typing.Callable
+    initial_prompt: str
+
     def __init__(
         self,
         *,
@@ -71,7 +74,7 @@ class ContentGenerator:
         status_updater: typing.Callable,
         initial_prompt: str,
     ) -> None:
-        self.general_gpt = model
+        self.model = model
         self.status_updater = status_updater
         self.init_prompt = initial_prompt
 
@@ -85,9 +88,10 @@ class ContentGenerator:
                     LLMToolParam(
                         name='query',
                         type=LLMToolParamTypes.STRING,
-                        description='Search query',
+                        description='Search query for google input',
                     ),
                 ),
+                func=self._handle_tool_call,
             ),
             LLMTool(
                 name='generate_image_and_attach_to_message',
@@ -99,10 +103,11 @@ class ContentGenerator:
                         description='Descriptive prompt for image generation',
                     ),
                 ),
+                func=self._handle_tool_call,
             ),
             LLMTool(
                 name='set_message_text',
-                description='Set the final HTML text for the message (use only allowed tags)',
+                description='Set the final HTML text for the message (use only allowed tags). ',
                 parameters=(
                     LLMToolParam(
                         name='prompt',
@@ -110,17 +115,13 @@ class ContentGenerator:
                         description='The final HTML caption/text',
                     ),
                 ),
+                func=self._handle_tool_call,
             ),
             LLMTool(
-                name='finish_and_send_message',
-                description='Finish composing and send the message',
-                parameters=(
-                    LLMToolParam(
-                        name='prompt',
-                        type=LLMToolParamTypes.STRING,
-                        description='Any final short note or leave empty',
-                    ),
-                ),
+                name='finish',
+                description='Finish processing and show the last message from "set_message_text"',
+                parameters=(),
+                func=self._handle_tool_call,
             ),
         )
 
@@ -144,9 +145,12 @@ class ContentGenerator:
             safe: bool
             text: str | None
 
-        gpt_response = await self.general_gpt.process(messages=msgs, response_format=SafeReviewResponse)
-        data = SafeReviewResponse.model_validate_json(gpt_response.content)
-        return data.safe, content if data.safe else data.text
+        llm_response = await self.model.process(messages=msgs, response_format=SafeReviewResponse)
+
+        if llm_response.parsed_content.safe:
+            return llm_response.parsed_content.safe, content
+        else:
+            return llm_response.parsed_content.text
 
     @staticmethod
     async def _gen_image_from_prompt(prompt: str) -> str | bytes:
@@ -169,54 +173,70 @@ class ContentGenerator:
             ),
         ]
 
-    async def _handle_tool_call(self, *, name: str, args: dict[str, Any], draft: DraftPost) -> str:
-        logging.info(f'Executing {name} with args: {args}')
-        await self.status_updater(f'Executing "{name}"...')
+    async def _handle_tool_call(self, tool_call: LLMToolCall) -> str:
+        logging.info(f'Executing {tool_call.name} with args: {tool_call.args}')
 
-        if name == 'search':
-            query = str(args.get('query', '')).strip()
+        if tool_call.name == 'search':
+            query = str(tool_call.args.get('query', '')).strip()
+            await self.status_updater(f'Searching "{query}"...')
             s_out = gen_optimized_json(await Searcher.find(query))
             s_text = s_out or 'No result found.'
+            await self.status_updater('Processing...')
             return f'SAFE-SEARCH-RESULT:\n{s_text}'
 
-        if name == 'generate_image_and_attach_to_message':
-            prompt = str(args.get('prompt', '')).strip()
+        if tool_call.name == 'generate_image_and_attach_to_message':
+            await self.status_updater('Generating image...')
+            prompt = str(tool_call.args.get('prompt', '')).strip()
             safe, fixed = await self._model_safety_review(prompt)
             img_prompt = prompt if safe else fixed
-            draft.image = await self._gen_image_from_prompt(img_prompt)
+            self._draft.image = await self._gen_image_from_prompt(img_prompt)
+            await self.status_updater('Processing...')
             return 'IMAGE-ATTACHED-OK' if safe else 'IMAGE-ATTACHED-AUTOFIXED'
 
-        if name == 'set_message_text':
-            text = str(args.get('prompt', '')).strip()
+        if tool_call.name == 'set_message_text':
+            text = str(tool_call.args.get('prompt', '')).strip()
             safe, fixed = await self._model_safety_review(text)
-            draft.text = sanitize_html(fixed if not safe else text)
+            self._draft.text = sanitize_html(fixed if not safe else text)
             return 'TEXT-SET-OK' if safe else 'TEXT-AUTOFIXED'
 
-        if name == 'finish_and_send_message':
-            if not draft.text:
+        if tool_call.name == 'finish':
+            if not self._draft.text:
                 return 'SEND-BLOCKED: No safe text set. Please set_message_text first.'
 
-            draft.text = fix_telegram_html_whitespace(draft.text)
+            self._draft.text = fix_telegram_html_whitespace(self._draft.text)
 
             return 'READY-TO-SEND'
 
         return 'UNKNOWN-TOOL'
 
-    async def run(self, topic_hint: str, max_steps: int = 12) -> DraftPost:
-        draft = DraftPost()
+    async def run(self, topic_hint: str, max_steps: int = 12) -> tuple[LLMResponse, DraftPost]:
+        self._draft = DraftPost()
+        msgs: list[LLMMessage] = self._build_initial_messages(topic_hint)
+
+        llm_response = await self.model.execute(
+            messages=tuple(msgs),
+            tools=self.toolset,
+            stop_when=lambda tool_call, result: tool_call.name == 'finish' and result == 'READY-TO-SEND',
+            max_steps=max_steps,
+        )
+
+        return llm_response, self._draft
+
+    async def run2(self, topic_hint: str, max_steps: int = 12) -> DraftPost:
+        self._draft = DraftPost()
         msgs: list[LLMMessage] = self._build_initial_messages(topic_hint)
 
         for step in range(max_steps):
             await self.status_updater(f'Processing... ({step + 1} step)')
-            gpt_response = await self.general_gpt.process(messages=tuple(msgs), tools=self.toolset)
+            llm_response = await self.model.process(messages=tuple(msgs), tools=self.toolset)
 
-            for func_call in gpt_response.tool_calls:
+            for func_call in llm_response.tool_calls:
                 msgs.append(LLMMessage(
                     role=LLMMessageRoles.ASSISTANT,
                     content=json.dumps({'call_func': func_call.name, 'args': func_call.args}, ensure_ascii=False),
                 ))
 
-                result = await self._handle_tool_call(name=func_call.name, args=func_call.args, draft=draft)
+                result = await self._handle_tool_call(func_call)
 
                 logging.info(f'Result of {func_call.name}: {result}')
 
@@ -225,17 +245,18 @@ class ContentGenerator:
                     content=json.dumps({'executed_tool_name': func_call.name, 'result': result}, ensure_ascii=False),
                 ))
 
-                if func_call.name == 'finish_and_send_message' and 'READY-TO-SEND' in result:
-                    return draft
+                if func_call.name == 'finish' and 'READY-TO-SEND' in result:
+                    return self._draft
 
             # Guardrail: if text exists but model hasn't finished after a few steps, return anyway
-            if draft.text and step >= 3:
-                return draft
+            if self._draft.text and step >= 3:
+                return self._draft
 
         raise RuntimeError(f'No message generated for topic_hint: {topic_hint}.')
 
 
 class TelegramContentGeneratorDialog(BaseDialog):
+    _default_topic_hint = 'Use random topic to generate the content. If you see any tool that can may affect randomness, then use it.'
     _html_parse_mode: str = 'html'
     _channel_name: str
     _initial_prompt: str
@@ -266,12 +287,12 @@ class TelegramContentGeneratorDialog(BaseDialog):
         )
 
     async def handle(self, request: Request) -> None:
-        topic_hint = (request.content or 'Use random topic to generate the content').strip()
+        topic_hint = (request.content or self._default_topic_hint).strip()
         await self._process(discussion=request.discussion, topic_hint=topic_hint)
 
     async def handle_callback(self, request: Request) -> None:
         if request.callback == 'generate_random':
-            await self._process(discussion=request.discussion)
+            await self._process(discussion=request.discussion, topic_hint=self._default_topic_hint)
         elif request.callback == 'post':
             await request.discussion.set_text_status('Posting...')
 
@@ -299,13 +320,13 @@ class TelegramContentGeneratorDialog(BaseDialog):
         else:
             await request.discussion.answer(Message(content='Unknown callback type'))
 
-    async def _process(self, *, discussion: Discussion, topic_hint: str | None = None) -> None:
-        await discussion.set_text_status(f'Planning post for topic "{topic_hint or "random"}"...')
+    async def _process(self, *, discussion: Discussion, topic_hint: str) -> None:
+        await discussion.set_text_status(f'Planning post for topic "{topic_hint}"...')
 
         async def _status_updater(status: str) -> None:
             await discussion.set_text_status(status)
 
-        draft = await ContentGenerator(
+        llm_response, draft = await ContentGenerator(
             model=self._model,
             status_updater=_status_updater,
             initial_prompt=self._initial_prompt,
@@ -340,7 +361,13 @@ class TelegramContentGeneratorDialog(BaseDialog):
 
         self.draft = draft
 
-        await discussion.answer(Message(content=content, buttons=(AnswerBtn(name='Post', callback='post'),)))
+        await discussion.answer(Message(
+            content=content,
+            buttons=(AnswerBtn(name='Post', callback='post'),),
+            duration=llm_response.duration,
+            cost=llm_response.cost,
+        ))
+
         await discussion.reset_text_status()
 
     def _update_status(self, status: str) -> None:

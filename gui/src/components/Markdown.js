@@ -28,15 +28,16 @@ function rehypeInlineCodeProperty() {
 }
 
 function addCopyBtnToCode(root = document) {
-    const blocks = root.querySelectorAll('pre > code')
+    const blocks = root.querySelectorAll('pre > div > code')
 
     for (const code of blocks) {
-        const pre = code.parentElement
+        const pre = code.parentElement.parentElement
+
         if (!pre) {
             continue
         }
 
-        if (pre.querySelector('button.copy-btn')) {
+        if (pre.querySelector('button.btn-copy')) {
             continue
         }
 
@@ -46,11 +47,7 @@ function addCopyBtnToCode(root = document) {
 
         const btn = document.createElement('button')
         btn.type = 'button'
-        btn.className = 'copy-btn btn btn-sm btn-copy'
-        btn.style.position = 'absolute'
-        btn.style.top = '.4rem'
-        btn.style.right = '.4rem'
-        btn.style.zIndex = '1'
+        btn.className = 'btn btn-sm btn-copy'
         btn.setAttribute('aria-label', 'Copy code')
         btn.innerHTML = '<i class="fa-solid fa-copy"></i>'
 
@@ -110,6 +107,7 @@ function Markdown({content}) {
                         ) : (
                             <SyntaxHighlighter
                                 {...rest}
+                                PreTag="div"
                                 children={String(children).replace(/\n$/, '')}
                                 language={language}
                                 style={SyntaxHighlighterTheme}

@@ -1,11 +1,33 @@
-import React, {Fragment} from 'react'
+import React, {Fragment, useEffect, useRef, useState} from 'react'
 import Markdown from './Markdown'
 import {Button} from 'react-bootstrap'
 
-function Message({message, addNotification, callButtonCallback, deleteMessage}) {
+function Message({message, addNotification: _addNotification, callButtonCallback, deleteMessage}) {
+    const [copied, setCopied] = useState(false)
+    const copyTimerRef = useRef(null)
+
+    useEffect(() => {
+        return () => {
+            if (copyTimerRef.current) {
+                clearTimeout(copyTimerRef.current)
+            }
+        }
+    }, [])
+
     const copyText = async () => {
-        navigator.clipboard.writeText(message.body.content)
-        await addNotification('Copied')
+        try {
+            await navigator.clipboard.writeText(message.body.content)
+
+            setCopied(true)
+
+            if (copyTimerRef.current) {
+                clearTimeout(copyTimerRef.current)
+            }
+
+            copyTimerRef.current = setTimeout(() => setCopied(false), 1500)
+        } catch (err) {
+            console.error('Failed to copy text:', err)
+        }
     }
 
     // const deleteCurrentMessage = async () => {
@@ -14,8 +36,13 @@ function Message({message, addNotification, callButtonCallback, deleteMessage}) 
 
     const controllers = (
         <div className="message-controllers">
-            <Button type="button" onClick={copyText}>
-                <i className="fa-solid fa-copy" />
+            <Button
+                type="button"
+                onClick={copyText}
+                aria-label={copied ? 'Copied' : 'Copy'}
+                title={copied ? 'Copied' : 'Copy'}
+            >
+                <i className={`fa-solid ${copied ? 'fa-check' : 'fa-copy'}`} />
             </Button>
             {/*<Button type="button" onClick={deleteCurrentMessage}>*/}
             {/*    <i className="fa-solid fa-pen"></i>*/}

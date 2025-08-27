@@ -118,6 +118,7 @@ button,
     left: 0;
     box-shadow: 0 0 3rem 3rem var(--secondary-color);
     position: fixed;
+    z-index: 1;
 }
 
 /* Chat Status Styles */
@@ -190,6 +191,7 @@ button,
     max-width: 50rem;
     bottom: 0;
     margin: 1.5rem calc((100% - min(80%, 50rem)) / 2);
+    z-index: 1;
 }
 
 .chat-footer form {
@@ -319,6 +321,7 @@ button,
 .message-text pre div {
     border-radius: var(--box-radius);
     background: rgba(43, 43, 43, 0.75) !important;
+    margin-top: 0 !important;
 }
 
 .user-message {
@@ -535,6 +538,11 @@ blockquote {
     color: var(--primary-color);
     opacity: 0.1;
     transition: opacity var(--small-animation-duration);
+    position: absolute;
+    top: 0;
+    margin-top: 0.4rem;
+    right: 0.4rem;
+    z-index: 1;
 }
 
 .btn-copy:hover {
