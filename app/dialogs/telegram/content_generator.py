@@ -222,38 +222,6 @@ class ContentGenerator:
 
         return llm_response, self._draft
 
-    async def run2(self, topic_hint: str, max_steps: int = 12) -> DraftPost:
-        self._draft = DraftPost()
-        msgs: list[LLMMessage] = self._build_initial_messages(topic_hint)
-
-        for step in range(max_steps):
-            await self.status_updater(f'Processing... ({step + 1} step)')
-            llm_response = await self.model.process(messages=tuple(msgs), tools=self.toolset)
-
-            for func_call in llm_response.tool_calls:
-                msgs.append(LLMMessage(
-                    role=LLMMessageRoles.ASSISTANT,
-                    content=json.dumps({'call_func': func_call.name, 'args': func_call.args}, ensure_ascii=False),
-                ))
-
-                result = await self._handle_tool_call(func_call)
-
-                logging.info(f'Result of {func_call.name}: {result}')
-
-                msgs.append(LLMMessage(
-                    role=LLMMessageRoles.SYSTEM,
-                    content=json.dumps({'executed_tool_name': func_call.name, 'result': result}, ensure_ascii=False),
-                ))
-
-                if func_call.name == 'finish' and 'READY-TO-SEND' in result:
-                    return self._draft
-
-            # Guardrail: if text exists but model hasn't finished after a few steps, return anyway
-            if self._draft.text and step >= 3:
-                return self._draft
-
-        raise RuntimeError(f'No message generated for topic_hint: {topic_hint}.')
-
 
 class TelegramContentGeneratorDialog(BaseDialog):
     _default_topic_hint = 'Use random topic to generate the content. If you see any tool that can may affect randomness, then use it.'

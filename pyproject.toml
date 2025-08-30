@@ -20,7 +20,7 @@ newspaper3k = "^0.2.8"
 numpy = "^2.3.2"
 pydantic = "^2.8.2"
 aiohttp-cors = "^0.8.1"
-lxml = {extras = ["html-clean"], version = "^5.2.2"}
+lxml = { extras = ["html-clean"], version = "^5.2.2" }
 html2text = "^2025.4.15"
 pandas = "^2.2.3"
 openpyxl = "^3.1.5"
@@ -28,7 +28,6 @@ python-magic = "^0.4.27"
 jinja2 = "^3.1.5"
 pyinstaller = "^6.12.0"
 aiofiles = "^24.1.0"
-docling = "^2.36.1"
 
 [tool.poetry.group.dev]
 optional = true
@@ -36,13 +35,18 @@ optional = true
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.9.10"
 
+[tool.poetry.group.file_parsing]
+optional = true
+
+[tool.poetry.group.file_parsing.dependencies]
+docling = "^2.36.1"
+
 [tool.poetry.group.webview]
 optional = true
 
 [tool.poetry.group.webview.dependencies]
-pywebview = {extras = ["gtk"], version = "^5.4"}
-pygobject = "^3.50.0"
-
+pywebview = { extras = ["gtk"], version = "^5.4" }
+pygobject = "^3.52.3"
 
 [build-system]
 requires = ["poetry-core"]

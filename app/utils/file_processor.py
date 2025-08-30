@@ -65,6 +65,9 @@ class FileProcessor:
 
     @cached_property
     def _docling_converter(self):
-        from docling.document_converter import DocumentConverter
+        try:
+            from docling.document_converter import DocumentConverter
+        except ModuleNotFoundError as e:
+            raise RuntimeError('You need to run `poetry install --with file_parsing` to parse some file formats.') from e
 
         return DocumentConverter()
