@@ -1,3 +1,4 @@
+import os.path
 import typing
 
 import yaml
@@ -66,8 +67,10 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
     if dialog_type == 'telegram_folder_reader':
         model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         extra = dialog_data.get('extra', {})
+        model_params = dialog_data.get('model_params', {})
         return name, LazyDialog(lambda: gen_telegram_folder_reader(
             gpt_model=model,
+            model_params=model_params,
             **extra,
         ))
 
@@ -79,6 +82,9 @@ def load_dialogs(path: str) -> dict:
     dialogs = {}
 
     for dialog_data in config.get('dialogs', []):
+        if base_data_path := dialog_data.get('__base__'):
+            dialog_data = {**load_dialogs(os.path.join(path, base_data_path)), **dialog_data}
+
         name, dialog_instance = create_dialog(dialog_data)
         dialogs[name] = dialog_instance
 

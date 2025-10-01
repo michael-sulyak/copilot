@@ -30,13 +30,20 @@ class BaseFileProfile(BaseProfile, abc.ABC):
 
 
 class BaseTextProfile(BaseProfile, abc.ABC):
-    text: typing.ClassVar[str | NOTSET] = NOTSET
+    instruction: typing.ClassVar[str | type[NOTSET]] = NOTSET
 
     def get_context(self) -> str | None:
-        if self.text is NOTSET:
+        if self.instruction is NOTSET:
             return None
 
-        return self.text
+        return self.instruction
+
+
+def load_profile(path: str) -> dict:
+    with open(path) as file:
+        config = yaml.safe_load(file)
+
+    return config
 
 
 def load_profiles_from_files(directory: str) -> dict[str, BaseProfile]:
@@ -47,11 +54,11 @@ def load_profiles_from_files(directory: str) -> dict[str, BaseProfile]:
             continue
 
         file_path = os.path.join(directory, file_name)
+        yaml_data = load_profile(file_path)
 
-        with open(file_path) as file:
-            content = file.read().strip()
+        if base_data_path := yaml_data.get('__base__'):
+            yaml_data = {**load_profile(os.path.join(directory, base_data_path)), **yaml_data}
 
-        yaml_data = yaml.safe_load(content)
         slug = file_name.rsplit('.', 1)[0]
         profiles[slug] = type(f'{slug.title()}Profile', (BaseTextProfile,), yaml_data)()
 

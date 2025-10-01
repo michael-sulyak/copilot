@@ -22,8 +22,8 @@ from .web.middlewares import index_middleware
 class DesktopApp:
     runner: web.AppRunner | None = None
     is_run: bool = True
-    rpc_server: aiohttp_rpc.WsJsonRpcServer | None = None
-    rpc_client: aiohttp_rpc.WsJsonRpcClient | None = None
+    rpc_server: aiohttp_rpc.WSJSONRPCServer | None = None
+    rpc_client: aiohttp_rpc.WSJSONRPCClient | None = None
     active_dialog: BaseDialog | None = None
     dialogs_map: dict
     dev_mode: bool
@@ -43,7 +43,7 @@ class DesktopApp:
     async def start(self) -> None:
         logging.info('Staring...')
 
-        self.rpc_server = aiohttp_rpc.WsJsonRpcServer(
+        self.rpc_server = aiohttp_rpc.WSJSONRPCServer(
             middlewares=aiohttp_rpc.middlewares.DEFAULT_MIDDLEWARES,
         )
 
@@ -52,20 +52,20 @@ class DesktopApp:
         class CustomWeakSetToTrack(weakref.WeakSet):
             def add(self, ws_connect: web_ws.WebSocketResponse) -> None:
                 logging.info('Added `rpc_client`.')
-                desktop_app.rpc_client = aiohttp_rpc.WsJsonRpcClient(ws_connect=ws_connect)
+                desktop_app.rpc_client = aiohttp_rpc.WSJSONRPCClient(ws_connect=ws_connect)
                 super().add(ws_connect)
 
-        self.rpc_server.rcp_websockets = CustomWeakSetToTrack()
+        self.rpc_server.rpc_websockets = CustomWeakSetToTrack()
 
         self.rpc_server.add_methods((
-            aiohttp_rpc.JsonRpcMethod(self.process_message, name='process_message'),
-            aiohttp_rpc.JsonRpcMethod(self.finish, name='finish'),
-            aiohttp_rpc.JsonRpcMethod(self.get_history, name='get_history'),
-            aiohttp_rpc.JsonRpcMethod(self.get_settings, name='get_settings'),
-            aiohttp_rpc.JsonRpcMethod(self.activate_dialog, name='activate_dialog'),
-            aiohttp_rpc.JsonRpcMethod(self.clear_dialog, name='clear_dialog'),
-            aiohttp_rpc.JsonRpcMethod(self.process_audio, name='process_audio'),
-            aiohttp_rpc.JsonRpcMethod(self.delete_message, name='delete_message'),
+            aiohttp_rpc.JSONRPCMethod(self.process_message, name='process_message'),
+            aiohttp_rpc.JSONRPCMethod(self.finish, name='finish'),
+            aiohttp_rpc.JSONRPCMethod(self.get_history, name='get_history'),
+            aiohttp_rpc.JSONRPCMethod(self.get_settings, name='get_settings'),
+            aiohttp_rpc.JSONRPCMethod(self.activate_dialog, name='activate_dialog'),
+            aiohttp_rpc.JSONRPCMethod(self.clear_dialog, name='clear_dialog'),
+            aiohttp_rpc.JSONRPCMethod(self.process_audio, name='process_audio'),
+            aiohttp_rpc.JSONRPCMethod(self.delete_message, name='delete_message'),
         ))
 
         app = web.Application(middlewares=(

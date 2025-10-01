@@ -25,20 +25,23 @@ class MessageGroup(abc.ABC):
 class TelegramMessageAggregator:
     _message_extractor: TelegramMessageExtractor
     _unprocessed_message_iter: typing.Iterator | None = None
-    _gpt_model: BaseLLM
+    _llm_model: BaseLLM
+    _model_params: dict
     _is_inited: bool
     _prompt_for_aggregation: str
     _grouping: typing.Callable | None
 
     def __init__(
         self, *,
-        gpt_model: BaseLLM,
+        llm_model: BaseLLM,
+        model_params: dict,
         message_extractor: TelegramMessageExtractor,
         prompt_for_aggregation: str,
         grouping: typing.Callable | None = None,
     ) -> None:
         self._message_extractor = message_extractor
-        self._gpt_model = gpt_model
+        self._llm_model = llm_model
+        self._model_params = model_params
         self._is_inited = False
         self._prompt_for_aggregation = prompt_for_aggregation
         self._grouping = grouping
@@ -52,7 +55,7 @@ class TelegramMessageAggregator:
     @cached_property
     def _max_tokens_per_message(self) -> float:
         return (
-            self._gpt_model.max_tokens // 2 - self._gpt_model.count_tokens_in_text(
+            self._llm_model.max_tokens // 2 - self._llm_model.count_tokens_in_text(
             self._prompt_for_aggregation)
         ) * 0.8
 
@@ -63,7 +66,7 @@ class TelegramMessageAggregator:
 
         async for message in messages_iter:
             prepared_message = self._prepare_message(message)
-            number_of_tokens_in_text = self._gpt_model.count_tokens_in_text(gen_optimized_json(prepared_message))
+            number_of_tokens_in_text = self._llm_model.count_tokens_in_text(gen_optimized_json(prepared_message))
             group = self._grouping(message) if self._grouping else None
 
             if prev_group is None:
@@ -148,7 +151,8 @@ class TelegramMessageAggregator:
         )
 
     async def _process_via_model(self, content: str) -> LLMResponse:
-        return await self._gpt_model.process(
+        return await self._llm_model.process(
             messages=(LLMMessage(role=LLMMessageRoles.USER, content=content),),
             check_total_length=True,
+            **self._model_params,
         )

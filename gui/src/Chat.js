@@ -75,18 +75,20 @@ function Chat() {
         <Card className="chat-card border-0 h-100 d-flex flex-column">
             <Header settings={settings} activateDialog={activateDialog} clearDialog={clearDialog} insertText={setInputValue} />
 
-            <Card.Body className="chat-body" ref={chatBodyRef}>
-                <div className="chat-body-shadow"></div>
-                {messages.map((message, index) => (
-                    <Message
-                        key={index}
-                        message={message}
-                        addNotification={addNotification}
-                        deleteMessage={deleteMessage}
-                        callButtonCallback={callButtonCallback}
-                    />
-                ))}
-            </Card.Body>
+            <div className="chat-scroll-clip">
+                <Card.Body className="chat-body" ref={chatBodyRef}>
+                    <div className="chat-body-shadow"></div>
+                    {messages.map((message, index) => (
+                        <Message
+                            key={index}
+                            message={message}
+                            addNotification={addNotification}
+                            deleteMessage={deleteMessage}
+                            callButtonCallback={callButtonCallback}
+                        />
+                    ))}
+                </Card.Body>
+            </div>
 
             <Footer
                 handleInputChange={handleInputChange}

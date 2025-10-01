@@ -27,7 +27,10 @@ function useFileUpload({addNotification, updateChatState}) {
                 xhr.upload.onprogress = async (event) => {
                     if (event.lengthComputable) {
                         const percentComplete = Math.round((event.loaded / event.total) * 100)
-                        await updateChatState({text: `File uploading... (${percentComplete}%)`})
+
+                        if (percentComplete !== 100) {
+                            await updateChatState({text: `File uploading... (${percentComplete}%)`})
+                        }
                     }
                 }
             }

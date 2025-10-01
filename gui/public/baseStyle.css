@@ -1,9 +1,11 @@
 :root {
-    --primary-color: #171717;
-    --secondary-color: #212121;
-    --tertiary-color: #1f1f1f;
+    --primary-color: rgb(23, 23, 23);
+    --secondary-color: rgb(33, 33, 33);
+    --tertiary-color: rgb(31, 31, 31);
     --dark-additional-color: rgb(5, 37, 65);
     --text-color: rgb(236, 236, 241);
+
+    --secondary095: rgb(23, 23, 23, 0.95);
 
     --black095: rgba(32, 33, 35, 0.95);
     --black075: rgba(32, 33, 35, 0.75);
@@ -16,6 +18,7 @@
     --white025: rgba(255, 255, 255, 0.25);
     --white01: rgba(255, 255, 255, 0.1);
     --white005: rgba(255, 255, 255, 0.05);
+    --white001: rgba(255, 255, 255, 0.01);
 
     --box-radius: 0.4rem;
     --box-radius-2: 1rem;
@@ -23,6 +26,8 @@
     --small-animation-duration: 0.2s;
     --medium-animation-duration: 0.5s;
     --large-animation-duration: 0.7s;
+
+    --header-height: 3.5rem;
 }
 
 .main-loader {

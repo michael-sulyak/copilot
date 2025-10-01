@@ -9,6 +9,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      # Ensure GI can find typelibs during build
+      GI_TYPELIB_PATH: /usr/lib/x86_64-linux-gnu/girepository-1.0
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -23,13 +27,21 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install system dependencies
+      - name: Install system dependencies (GTK, WebKit, GI)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libfuse2 libcairo2-dev gobject-introspection libgirepository-2.0-dev \
-            gir1.2-glib-2.0 gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
-            libgl1 libglx-mesa0 libgl1-mesa-dri xvfb libnss3 libxss1 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 \
+            libfuse2 \
+            # GI runtime + typelibs
+            gobject-introspection libgirepository1.0-dev gir1.2-glib-2.0 \
+            # GTK stack needed by pywebview[gtk]
+            libcairo2-dev libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 \
+            gir1.2-gtk-3.0 \
+            # WebKit2GTK (used by pywebview on Linux)
+            gir1.2-webkit2-4.1 \
+            # Misc runtime deps often needed by headless/electron-like stacks
+            libgl1 libglx-mesa0 libgl1-mesa-dri xvfb libnss3 libxss1 \
+            # Python GI bindings (safe even if using pip pygobject inside venv)
             python3-gi python3-gi-cairo
 
       - name: Cache Poetry dependencies
@@ -63,15 +75,19 @@ jobs:
       - name: Install dependencies
         run: make install_deps
 
-      # Workaround PyInstaller GI hook regression (GIRepository '3.0' -> '2.0')
-      - name: Patch PyInstaller GI hook
+      - name: Pin PyInstaller to < 6.12
+        run: poetry run pip install "pyinstaller>=6.10,<6.12" --upgrade
+
+      - name: Sanity check GIRepository availability
         run: |
-          VENV_SITE=$(poetry run python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-          HOOK="$VENV_SITE/PyInstaller/utils/hooks/gi.py"
-          echo "Patching $HOOK"
-          sed -i "s/('GIRepository', '3.0')/('GIRepository', '2.0')/" "$HOOK"
-          echo "Patched line:"
-          grep -n "require_version('GIRepository'" "$HOOK" || true
+          ls -l /usr/lib/x86_64-linux-gnu/girepository-1.0/GIRepository-2.0.typelib || true
+          poetry run python - <<'PY'
+          import gi
+          gi.require_version('GIRepository', '2.0')
+          from gi.repository import GIRepository, GLib
+          print('GIRepository OK:', GIRepository)
+          print('GLib OK:', GLib)
+          PY
 
       - name: Build AppImage
         run: make build_appimage

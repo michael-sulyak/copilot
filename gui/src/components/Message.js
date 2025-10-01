@@ -36,12 +36,7 @@ function Message({message, addNotification: _addNotification, callButtonCallback
 
     const controllers = (
         <div className="message-controllers">
-            <Button
-                type="button"
-                onClick={copyText}
-                aria-label={copied ? 'Copied' : 'Copy'}
-                title={copied ? 'Copied' : 'Copy'}
-            >
+            <Button type="button" onClick={copyText} aria-label={copied ? 'Copied' : 'Copy'} title={copied ? 'Copied' : 'Copy'}>
                 <i className={`fa-solid ${copied ? 'fa-check' : 'fa-copy'}`} />
             </Button>
             {/*<Button type="button" onClick={deleteCurrentMessage}>*/}
