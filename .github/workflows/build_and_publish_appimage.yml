@@ -6,6 +6,13 @@ on:
   release:
     types: [ published ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -15,36 +22,39 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
 
       - name: Install system dependencies (GTK, WebKit, GI)
         run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y \
-            libfuse2 \
-            # GI runtime + typelibs
+          sudo apt-get install -y --no-install-recommends \
+            libfuse2t64 \
             gobject-introspection libgirepository1.0-dev gir1.2-glib-2.0 \
-            # GTK stack needed by pywebview[gtk]
-            libcairo2-dev libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 \
-            gir1.2-gtk-3.0 \
-            # WebKit2GTK (used by pywebview on Linux)
+            libgtk-3-0 libcairo2 libatk1.0-0 libatk-bridge2.0-0 gir1.2-gtk-3.0 \
             gir1.2-webkit2-4.1 \
-            # Misc runtime deps often needed by headless/electron-like stacks
             libgl1 libglx-mesa0 libgl1-mesa-dri xvfb libnss3 libxss1 \
-            # Python GI bindings (safe even if using pip pygobject inside venv)
             python3-gi python3-gi-cairo
+          sudo rm -rf /var/lib/apt/lists/*
 
-      - name: Cache Poetry dependencies
+      - name: Install Poetry
+        run: |
+          set -euxo pipefail
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Poetry downloads
         uses: actions/cache@v4
         with:
           path: |
@@ -54,29 +64,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-poetry-
 
-      - name: Cache Node.js modules
-        id: cache-node-modules
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-node-modules
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('gui/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
-
-      - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "${HOME}/.local/bin" >> $GITHUB_PATH
-
       - name: Install dependencies
         run: make install_deps
 
       - name: Pin PyInstaller to < 6.12
-        run: poetry run pip install "pyinstaller>=6.10,<6.12" --upgrade
+        run: poetry run python -m pip install "pyinstaller>=6.10,<6.12" --upgrade
 
       - name: Sanity check GIRepository availability
         run: |
@@ -94,24 +86,20 @@ jobs:
 
       - name: Verify AppImage exists
         run: |
-          if [ ! -f "Copilot-x86_64.AppImage" ]; then
-            echo "Error: Copilot-x86_64.AppImage not found!"
-            exit 1
-          fi
+          set -e
+          test -f "Copilot-x86_64.AppImage" || { echo "Error: Copilot-x86_64.AppImage not found!"; exit 1; }
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: Copilot-x86_64.AppImage
           path: Copilot-x86_64.AppImage
+          if-no-files-found: error
 
-      - name: Publish AppImage to GitHub releases
-        if: ${{ github.event_name == 'release' }}
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Publish to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: Copilot-x86_64.AppImage
-          asset_name: Copilot-x86_64.AppImage
-          asset_content_type: application/vnd.appimage
+          files: Copilot-x86_64.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
