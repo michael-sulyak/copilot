@@ -7,7 +7,53 @@ import rehypeKatex from 'rehype-katex'
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
 import {darcula as SyntaxHighlighterTheme} from 'react-syntax-highlighter/dist/esm/styles/prism'
 import {visit} from 'unist-util-visit'
+import mermaid from 'mermaid'
 
+
+function MermaidBlock({code}) {
+    const ref = React.useRef(null)
+
+    React.useEffect(() => {
+        let canceled = false
+        const id = 'mmd-' + Math.random().toString(36).slice(2)
+
+        async function render() {
+            try {
+                mermaid.initialize({
+                    startOnLoad: false,
+                    securityLevel: 'strict',
+                    theme: 'dark',
+                })
+
+                const {svg} = await mermaid.render(id, code)
+
+                if (!canceled && ref.current) {
+                    ref.current.innerHTML = svg
+                }
+            } catch (e) {
+                if (ref.current) {
+                    ref.current.innerText = 'Mermaid render error: ' + (e?.message || e)
+                }
+            }
+        }
+
+        render()
+
+        return () => {
+            canceled = true
+
+            if (ref.current) {
+                ref.current.innerHTML = ''
+            }
+        }
+    }, [code])
+
+    return (
+        <div className="mermaid-container">
+            <div ref={ref}/>
+        </div>
+    )
+}
 
 function rehypeInlineCodeProperty() {
     return function (tree) {
@@ -100,11 +146,21 @@ function Markdown({content}) {
                         const match = /language-(\w+)/.exec(className || '')
                         const language = match ? match[1] : ''
 
-                        return inline ? (
-                            <code {...rest} className={className}>
-                                {children}
-                            </code>
-                        ) : (
+                        if (inline) {
+                            return (
+                                <code {...rest} className={className}>
+                                    {children}
+                                </code>
+                            )
+                        }
+
+                        // Handle ```mermaid
+                        if (language === 'mermaid') {
+                            const code = String(children).replace(/\n$/, '')
+                            return <MermaidBlock code={code}/>
+                        }
+
+                        return (
                             <SyntaxHighlighter
                                 {...rest}
                                 PreTag="div"
