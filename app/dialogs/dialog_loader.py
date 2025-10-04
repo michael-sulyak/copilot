@@ -12,6 +12,7 @@ from .llm_chat import Dialog
 from .profiles import PROFILES
 from .telegram.content_generator import TelegramContentGeneratorDialog
 from .telegram.dialogs import gen_telegram_folder_reader
+from ..utils.yaml import load_yaml_file
 
 
 def load_dialogs_config(path: str) -> dict:
@@ -78,13 +79,10 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
 
 
 def load_dialogs(path: str) -> dict:
-    config = load_dialogs_config(path)
+    config = load_yaml_file(path)
     dialogs = {}
 
     for dialog_data in config.get('dialogs', []):
-        if base_data_path := dialog_data.get('__base__'):
-            dialog_data = {**load_dialogs(os.path.join(path, base_data_path)), **dialog_data}
-
         name, dialog_instance = create_dialog(dialog_data)
         dialogs[name] = dialog_instance
 

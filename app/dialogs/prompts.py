@@ -1,9 +1,9 @@
 import os
 
-import yaml
 from jinja2 import Template as Jinja2Template
 
 from .. import config
+from ..utils.yaml import load_yaml_file
 
 
 def load_prompts_from_files(directory: str) -> list[dict[str, str]]:
@@ -14,11 +14,7 @@ def load_prompts_from_files(directory: str) -> list[dict[str, str]]:
             continue
 
         file_path = os.path.join(directory, file_name)
-
-        with open(file_path) as file:
-            content = file.read().strip()
-
-        yaml_data = yaml.safe_load(content)
+        yaml_data = load_yaml_file(file_path)
         name = Jinja2Template(yaml_data['name'])
         prompt = Jinja2Template(yaml_data['prompt'])
         versions = yaml_data.get('versions')

@@ -3,10 +3,9 @@ import os
 import typing
 from functools import lru_cache
 
-import yaml
-
 from .. import config
 from ..models.openai.constants import NOTSET
+from ..utils.yaml import load_yaml_file
 
 
 class BaseProfile(abc.ABC):
@@ -39,25 +38,15 @@ class BaseTextProfile(BaseProfile, abc.ABC):
         return self.instruction
 
 
-def load_profile(path: str) -> dict:
-    with open(path) as file:
-        config = yaml.safe_load(file)
-
-    return config
-
-
 def load_profiles_from_files(directory: str) -> dict[str, BaseProfile]:
     profiles = {}
 
     for file_name in sorted(os.listdir(directory)):
-        if not file_name.endswith(('.yaml', '.yml')):
+        if not file_name.endswith(('.yaml', '.yml',)):
             continue
 
         file_path = os.path.join(directory, file_name)
-        yaml_data = load_profile(file_path)
-
-        if base_data_path := yaml_data.get('__base__'):
-            yaml_data = {**load_profile(os.path.join(directory, base_data_path)), **yaml_data}
+        yaml_data = load_yaml_file(file_path)
 
         slug = file_name.rsplit('.', 1)[0]
         profiles[slug] = type(f'{slug.title()}Profile', (BaseTextProfile,), yaml_data)()
