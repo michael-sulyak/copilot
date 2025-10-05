@@ -1,17 +1,20 @@
 import logging
+import typing
 
-from ..memory import BaseMemory
-from ..models.openai.base import BaseLLM, LLMMessage
-from ..models.openai.constants import NOTSET, LLMMessageRoles
-from ..utils.file_processor import FileProcessor
 from .base import BaseDialog, DialogError, Message, Request
 from .profiles import BaseProfile
+from .tools import BaseLLMTool
+from ..memory import BaseMemory
+from ..models.openai.base import BaseLLM, LLMMessage
+from ..models.openai.constants import LLMMessageRoles, NOTSET
+from ..utils.file_processor import FileProcessor
 
 
 class Dialog(BaseDialog):
     profile: BaseProfile
     memory: BaseMemory
     model: BaseLLM
+    tools: typing.Sequence[BaseLLMTool]
 
     def __init__(
         self, *,
@@ -19,11 +22,13 @@ class Dialog(BaseDialog):
         memory: BaseMemory,
         model: BaseLLM,
         files_are_supported: bool = False,
+        tools: typing.Sequence[BaseLLMTool] = (),
     ) -> None:
         self.profile = profile
         self.memory = memory
         self.model = model
         self.files_are_supported = files_are_supported
+        self.tools = tools
 
         if context := self.profile.get_context():
             self.memory.add_context(LLMMessage(role=LLMMessageRoles.SYSTEM, content=context))
@@ -87,6 +92,9 @@ class Dialog(BaseDialog):
         if self.model.is_reasoning and self.profile.reasoning_effort is not NOTSET:
             params['reasoning_effort'] = self.profile.reasoning_effort
 
+        if self.tools:
+            params['tools'] = self.tools
+
         try:
             response = await self.model.process(
                 messages=self.memory.get_buffer(),
@@ -96,10 +104,15 @@ class Dialog(BaseDialog):
             logging.exception(e)
             raise DialogError(str(e)) from e
 
-        self.memory.add_message(LLMMessage(role=LLMMessageRoles.ASSISTANT, content=response.content))
+        content = response.content
+
+        if response.annotations:
+            content += f'\n---\n**Sources:**\n{"\n".join(map(lambda x: f"* {x}", response.annotations))}'
+
+        self.memory.add_message(LLMMessage(role=LLMMessageRoles.ASSISTANT, content=content))
 
         return Message(
-            content=response.content,
+            content=content,
             duration=response.duration,
             cost=response.cost,
             total_tokens=response.total_tokens,

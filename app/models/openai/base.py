@@ -85,6 +85,7 @@ class LLMResponse:
     cost: float
     total_tokens: int
     original_response: Response
+    annotations: tuple[str, ...] | None = None
     generated_at: datetime.datetime = dataclasses.field(
         default_factory=datetime.datetime.now,
     )
@@ -171,8 +172,16 @@ class LLMToolCall:
     is_valid: bool
 
 
+class BaseLLMTool(abc.ABC):
+    name: str
+
+    @abc.abstractmethod
+    def dump(self) -> dict[str, typing.Any]:
+        pass
+
+
 @dataclasses.dataclass(frozen=True)
-class LLMTool:
+class FunctionLLMTool(BaseLLMTool):
     name: str
     description: str
     parameters: tuple[LLMToolParam, ...]
@@ -213,7 +222,7 @@ class LLMRequest:
     temperature: float | NOTSET = NOTSET
     top_p: float | NOTSET = NOTSET
     response_format: BaseModel | NOTSET = NOTSET
-    tools: tuple[LLMTool, ...] | NOTSET = NOTSET
+    tools: tuple[FunctionLLMTool, ...] | NOTSET = NOTSET
     reasoning_effort: str | NOTSET = NOTSET
 
     def dump(self) -> dict:
@@ -273,7 +282,7 @@ class BaseLLM:
                       temperature: float | NOTSET = NOTSET,
                       top_p: float | NOTSET = NOTSET,
                       check_total_length: bool = False,
-                      tools: tuple[LLMTool, ...] | NOTSET = NOTSET,
+                      tools: tuple[BaseLLMTool, ...] | NOTSET = NOTSET,
                       response_format: type[BaseModel] | NOTSET = NOTSET,
                       reasoning_effort: str | NOTSET = NOTSET,
                       _count_of_repeats: int = 0) -> LLMResponse:
@@ -345,6 +354,8 @@ class BaseLLM:
         content = None
         target_response_output = response.output[-1]
 
+        annotations = None
+
         if isinstance(target_response_output, ResponseFunctionToolCall):
             tool_call = target_response_output
 
@@ -365,6 +376,11 @@ class BaseLLM:
                 is_valid=call_is_valid,
             ))
         elif target_response_output.content and isinstance(target_response_output.content[0], ResponseOutputText):
+            annotations = target_response_output.content[0].annotations or None
+
+            if annotations:
+                annotations = tuple(annotation.url for annotation in annotations)
+
             content = prepare_llm_response_content(target_response_output.content[0].text)
 
         if response_format is NOTSET:
@@ -380,6 +396,7 @@ class BaseLLM:
             cost=cost,
             total_tokens=response.usage.total_tokens,
             original_response=response,
+            annotations=annotations,
         )
 
     @classmethod
@@ -387,7 +404,7 @@ class BaseLLM:
         cls,
         *,
         messages: typing.Sequence[LLMMessage],
-        tools: tuple[LLMTool, ...],
+        tools: tuple[FunctionLLMTool, ...],
         temperature: float | NOTSET = NOTSET,
         top_p: float | NOTSET = NOTSET,
         reasoning_effort: str | NOTSET = NOTSET,

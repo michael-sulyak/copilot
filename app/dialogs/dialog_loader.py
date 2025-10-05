@@ -1,10 +1,7 @@
-import os.path
 import typing
 
 import yaml
 
-from ..memory import Memory
-from ..models.openai.base import AVAILABLE_LLM_MODELS_MAP
 from .base import BaseDialog
 from .drawer_chat import GptImageDialog
 from .greetings import GreetingsDialog
@@ -12,6 +9,9 @@ from .llm_chat import Dialog
 from .profiles import PROFILES
 from .telegram.content_generator import TelegramContentGeneratorDialog
 from .telegram.dialogs import gen_telegram_folder_reader
+from .tools import TOOLS_MAP
+from ..memory import Memory
+from ..models.openai.base import AVAILABLE_LLM_MODELS_MAP
 from ..utils.yaml import load_yaml_file
 
 
@@ -44,11 +44,17 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
         memory = Memory(**memory_data)
         model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         files_supported = dialog_data.get('files_supported', False)
+        tools = tuple(
+            TOOLS_MAP[tool_name]()
+            for tool_name in dialog_data.get('tools', {})
+        )
+
         return name, LazyDialog(lambda: Dialog(
             profile=profile,
             memory=memory,
             model=model,
             files_are_supported=files_supported,
+            tools=tools,
         ))
 
     if dialog_type == 'gpt_image':

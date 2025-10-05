@@ -11,7 +11,7 @@ from telethon.tl.types import Channel
 
 from app.dialogs.base import AnswerBtn, BaseDialog, Discussion, Message, Request
 from app.dialogs.telegram.utils import get_telegram_client, init_telegram_client
-from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, LLMTool, LLMToolCall, LLMToolParam
+from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMToolCall, LLMToolParam
 from app.models.openai.constants import LLMMessageRoles, LLMToolParamTypes
 from app.utils.common import gen_optimized_json
 from app.utils.local_file_storage import LocalFileStorage, get_file_storage
@@ -79,9 +79,9 @@ class ContentGenerator:
         self.init_prompt = initial_prompt
 
     @cached_property
-    def toolset(self) -> tuple[LLMTool, ...]:
+    def toolset(self) -> tuple[FunctionLLMTool, ...]:
         return (
-            LLMTool(
+            FunctionLLMTool(
                 name='search',
                 description='Search in the internet',
                 parameters=(
@@ -93,7 +93,7 @@ class ContentGenerator:
                 ),
                 func=self._handle_tool_call,
             ),
-            LLMTool(
+            FunctionLLMTool(
                 name='generate_image_and_attach_to_message',
                 description='Generate an image from a descriptive, original prompt and attach it',
                 parameters=(
@@ -105,7 +105,7 @@ class ContentGenerator:
                 ),
                 func=self._handle_tool_call,
             ),
-            LLMTool(
+            FunctionLLMTool(
                 name='set_message_text',
                 description='Set the final HTML text for the message (use only allowed tags). ',
                 parameters=(
@@ -117,7 +117,7 @@ class ContentGenerator:
                 ),
                 func=self._handle_tool_call,
             ),
-            LLMTool(
+            FunctionLLMTool(
                 name='finish',
                 description='Finish processing and show the last message from "set_message_text"',
                 parameters=(),
