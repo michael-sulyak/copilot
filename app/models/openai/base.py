@@ -18,14 +18,13 @@ from openai.types.responses import (
     Response,
     ResponseFormatTextJSONSchemaConfigParam,
     ResponseFunctionToolCall,
-    ResponseOutputMessage, ResponseOutputText,
-    ResponseTextConfigParam, ResponseUsage,
+    ResponseOutputText,
+    ResponseTextConfigParam,
 )
-from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from pydantic import BaseModel
 
 from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTSET
-from .utils import num_tokens_from_messages, prepare_llm_response_content
+from .utils import num_tokens_from_messages, prepare_llm_response_content, process_llm_request_via_old_api
 from ... import config
 from ...utils.common import chunk_generator, gen_optimized_json
 from ...utils.local_file_storage import File
@@ -317,55 +316,7 @@ class BaseLLM:
 
             try:
                 if cls.use_old_api:
-                    raw_llm_request = llm_request.dump()
-                    raw_llm_request['messages'] = raw_llm_request.pop('input')
-
-                    if raw_llm_request.get('reasoning'):
-                        raw_llm_request['reasoning_effort'] = raw_llm_request.pop('reasoning').effort
-
-                    raw_response = await cls.config.client.chat.completions.create(
-                        **raw_llm_request,
-                    )
-
-                    if raw_func_call := raw_response.choices[0].message.function_call:
-                        response_output = ResponseFunctionToolCall(
-                            arguments=raw_func_call['arguments'],
-                            call_id='0',
-                            name=raw_func_call['name'],
-                            type='function_call',
-                        )
-                    else:
-                        response_output = ResponseOutputMessage(
-                            id='0',
-                            content=[
-                                ResponseOutputText(
-                                    annotations=[],
-                                    text=raw_response.choices[0].message.content,
-                                    type='output_text',
-                                ),
-                            ],
-                            role='assistant',
-                            status='completed',
-                            type='message',
-                        )
-
-                    response = Response(
-                        id=raw_response.id,
-                        usage=ResponseUsage(
-                            input_tokens=raw_response.usage.prompt_tokens,
-                            output_tokens=raw_response.usage.completion_tokens,
-                            total_tokens=raw_response.usage.total_tokens,
-                            input_tokens_details=InputTokensDetails(cached_tokens=0),
-                            output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
-                        ),
-                        created_at=raw_response.created,
-                        model=raw_response.model,
-                        object='response',
-                        output=[response_output],
-                        parallel_tool_calls=False,
-                        tool_choice='auto',
-                        tools=[],
-                    )
+                    response = await process_llm_request_via_old_api(llm=cls, llm_request=llm_request)
                 else:
                     response = await cls.config.client.responses.create(**llm_request.dump())
             except openai.RateLimitError as e:
