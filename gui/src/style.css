@@ -349,7 +349,7 @@ button,
     /*border: 2px solid transparent;*/
 }
 
-.message-text pre > div {
+.message-text pre > div > div {
     border-radius: var(--box-radius);
     background: rgba(43, 43, 43, 0.75) !important;
     margin-top: 0 !important;

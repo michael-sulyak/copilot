@@ -10,6 +10,50 @@ import {visit} from 'unist-util-visit'
 import mermaid from 'mermaid'
 
 
+function CopyButton({getText, title = 'Copy', className = 'btn btn-sm btn-copy', style}) {
+    const [icon, setIcon] = React.useState('copy')
+
+    const handleClick = async () => {
+        try {
+            const text = typeof getText === 'function' ? getText() : String(getText ?? '')
+            if (!text) {
+                throw new Error('Nothing to copy')
+            }
+
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text)
+            } else {
+                // Fallback for older browsers
+                const ta = document.createElement('textarea')
+                ta.value = text
+                document.body.appendChild(ta)
+                ta.select()
+                document.execCommand('copy')
+                document.body.removeChild(ta)
+            }
+
+            setIcon('check')
+            setTimeout(() => setIcon('copy'), 1500)
+        } catch {
+            setIcon('bug')
+            setTimeout(() => setIcon('copy'), 1500)
+        }
+    }
+
+    return (
+        <button
+            type="button"
+            className={className}
+            aria-label={title}
+            title={title}
+            onClick={handleClick}
+            style={style}
+        >
+            <i className={`fa-solid fa-${icon}`}></i>
+        </button>
+    )
+}
+
 function MermaidBlock({code}) {
     const ref = React.useRef(null)
 
@@ -49,8 +93,12 @@ function MermaidBlock({code}) {
     }, [code])
 
     return (
-        <div className="mermaid-container">
+        <div className="mermaid-container" style={{position: 'relative'}}>
             <div ref={ref}/>
+            <CopyButton
+                getText={() => code}
+                title="Copy Mermaid source"
+            />
         </div>
     )
 }
@@ -73,67 +121,9 @@ function rehypeInlineCodeProperty() {
     }
 }
 
-function addCopyBtnToCode(root = document) {
-    const blocks = root.querySelectorAll('pre > div > code')
-
-    for (const code of blocks) {
-        const pre = code.parentElement.parentElement
-
-        if (!pre) {
-            continue
-        }
-
-        if (pre.querySelector('button.btn-copy')) {
-            continue
-        }
-
-        if (!pre.style.position) {
-            pre.style.position = 'relative'
-        }
-
-        const btn = document.createElement('button')
-        btn.type = 'button'
-        btn.className = 'btn btn-sm btn-copy'
-        btn.setAttribute('aria-label', 'Copy code')
-        btn.innerHTML = '<i class="fa-solid fa-copy"></i>'
-
-        btn.addEventListener('click', async () => {
-            const text = code.innerText
-            try {
-                if (navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(text)
-                } else {
-                    // Fallback for older browsers
-                    const ta = document.createElement('textarea')
-                    ta.value = text
-                    document.body.appendChild(ta)
-                    ta.select()
-                    document.execCommand('copy')
-                    document.body.removeChild(ta)
-                }
-                btn.innerHTML = '<i class="fa-solid fa-check"></i>'
-                setTimeout(() => (btn.innerHTML = '<i class="fa-solid fa-copy"></i>'), 1500)
-            } catch {
-                btn.innerHTML = '<i class="fa-solid fa-bug"></i>'
-                setTimeout(() => (btn.innerHTML = '<i class="fa-solid fa-copy"></i>'), 1500)
-            }
-        })
-
-        pre.appendChild(btn)
-    }
-}
-
 function Markdown({content}) {
-    const containerRef = React.useRef(null)
-
-    React.useEffect(() => {
-        if (containerRef.current) {
-            addCopyBtnToCode(containerRef.current)
-        }
-    }, [content])
-
     return (
-        <div ref={containerRef}>
+        <div>
             <ReactMarkdown
                 remarkPlugins={[
                     [remarkMath, {singleDollarTextMath: true}],
@@ -154,20 +144,32 @@ function Markdown({content}) {
                             )
                         }
 
-                        // Handle ```mermaid
                         if (language === 'mermaid') {
-                            const code = String(children).replace(/\n$/, '')
+                            const raw = Array.isArray(children) ? children.join('') : (children ?? '')
+                            const code = String(raw).replace(/\n$/, '').trim()
+                            if (!code || code === 'undefined' || code === 'null') {
+                                return null
+                            }
                             return <MermaidBlock code={code}/>
                         }
 
+                        const raw = Array.isArray(children) ? children.join('') : (children ?? '')
+                        const codeStr = String(raw).replace(/\n$/, '')
+
                         return (
-                            <SyntaxHighlighter
-                                {...rest}
-                                PreTag="div"
-                                children={String(children).replace(/\n$/, '')}
-                                language={language}
-                                style={SyntaxHighlighterTheme}
-                            />
+                            <div className="code-container" style={{position: 'relative'}}>
+                                <SyntaxHighlighter
+                                    {...rest}
+                                    PreTag="div"
+                                    children={codeStr}
+                                    language={language}
+                                    style={SyntaxHighlighterTheme}
+                                />
+                                <CopyButton
+                                    getText={() => codeStr}
+                                    title="Copy code"
+                                />
+                            </div>
                         )
                     },
                     a({href, children}) {
