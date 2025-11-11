@@ -46,14 +46,8 @@ def get_config_value(name: str, default: object = None) -> object:
     return yaml_config.get(name.lower(), default)
 
 
-OPENAI_API_KEY = get_config_value('openai_api_key')
-OPENAI_BASE_URL = get_config_value('openai_base_url')
-OPENROUTER_API_KEY = get_config_value('openrouter_api_key')
-
-if OPENROUTER_API_KEY:
-    OPENAI_API_KEY = OPENROUTER_API_KEY
-    if not OPENAI_BASE_URL:
-        OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+MODEL_CONNECTION_API_KEY = get_config_value('model_connection_api_key')
+MODEL_CONNECTION_API_BASE_URL = get_config_value('model_connection_api_base_url')
 
 os.environ['TIKTOKEN_CACHE_DIR'] = get_config_value(
     'tiktoken_cache_dir',

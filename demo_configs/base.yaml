@@ -1,6 +1,5 @@
-openai_api_key:
-openai_base_url:
-openrouter_api_key:
+model_connection_api_key:
+model_connection_api_base_url:
 telegram_api_id:
 telegram_api_hash:
 google_app_id:

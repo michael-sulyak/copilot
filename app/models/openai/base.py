@@ -18,9 +18,10 @@ from openai.types.responses import (
     Response,
     ResponseFormatTextJSONSchemaConfigParam,
     ResponseFunctionToolCall,
-    ResponseOutputText,
-    ResponseTextConfigParam,
+    ResponseOutputMessage, ResponseOutputText,
+    ResponseTextConfigParam, ResponseUsage,
 )
+from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from pydantic import BaseModel
 
 from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTSET
@@ -31,7 +32,7 @@ from ...utils.local_file_storage import File
 
 
 @dataclasses.dataclass(frozen=True)
-class OpenAiConfig:
+class ApiConnectionConfig:
     base_url: str | None = None
     api_key: str | None = None
     api_version: str | None = None
@@ -272,9 +273,10 @@ class BaseLLM:
     output_price: float
     min_response_volume = 0.1
     max_retries: int = 3
-    config: OpenAiConfig
+    config: ApiConnectionConfig
     has_vision: bool = False
     is_reasoning: bool = False
+    use_old_api: bool = False
 
     @classmethod
     async def process(cls,
@@ -314,7 +316,58 @@ class BaseLLM:
             backoff = 2 ** attempt
 
             try:
-                response = await cls.config.client.responses.create(**llm_request.dump())
+                if cls.use_old_api:
+                    raw_llm_request = llm_request.dump()
+                    raw_llm_request['messages'] = raw_llm_request.pop('input')
+
+                    if raw_llm_request.get('reasoning'):
+                        raw_llm_request['reasoning_effort'] = raw_llm_request.pop('reasoning').effort
+
+                    raw_response = await cls.config.client.chat.completions.create(
+                        **raw_llm_request,
+                    )
+
+                    if raw_func_call := raw_response.choices[0].message.function_call:
+                        response_output = ResponseFunctionToolCall(
+                            arguments=raw_func_call['arguments'],
+                            call_id='0',
+                            name=raw_func_call['name'],
+                            type='function_call',
+                        )
+                    else:
+                        response_output = ResponseOutputMessage(
+                            id='0',
+                            content=[
+                                ResponseOutputText(
+                                    annotations=[],
+                                    text=raw_response.choices[0].message.content,
+                                    type='output_text',
+                                ),
+                            ],
+                            role='assistant',
+                            status='completed',
+                            type='message',
+                        )
+
+                    response = Response(
+                        id=raw_response.id,
+                        usage=ResponseUsage(
+                            input_tokens=raw_response.usage.prompt_tokens,
+                            output_tokens=raw_response.usage.completion_tokens,
+                            total_tokens=raw_response.usage.total_tokens,
+                            input_tokens_details=InputTokensDetails(cached_tokens=0),
+                            output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
+                        ),
+                        created_at=raw_response.created,
+                        model=raw_response.model,
+                        object='response',
+                        output=[response_output],
+                        parallel_tool_calls=False,
+                        tool_choice='auto',
+                        tools=[],
+                    )
+                else:
+                    response = await cls.config.client.responses.create(**llm_request.dump())
             except openai.RateLimitError as e:
                 logging.warning(e)
 
@@ -561,9 +614,9 @@ class BaseLLM:
         return count_of_tokens + cls.max_tokens * min_response_volume <= cls.max_tokens
 
 
-OPENAI_CONFIG = OpenAiConfig(
-    api_key=config.OPENAI_API_KEY,
-    base_url=config.OPENAI_BASE_URL,
+DEFAULT_MODEL_CONNECTION_API_CONFIG = ApiConnectionConfig(
+    api_key=config.MODEL_CONNECTION_API_KEY,
+    base_url=config.MODEL_CONNECTION_API_BASE_URL,
 )
 
 
@@ -576,7 +629,16 @@ def load_llm_models_config() -> typing.Generator:
     for model_info in model_infos:
         model_info['input_price'] = float(model_info['input_price'])
         model_info['output_price'] = float(model_info['output_price'])
-        yield type(model_info['showed_model_name'], (BaseLLM,), {**model_info, 'config': OPENAI_CONFIG})
+
+        if 'connection_api_config' in model_info:
+            connection_api_config = ApiConnectionConfig(
+                api_key=model_info['connection_api_config']['api_key'],
+                base_url=model_info['connection_api_config']['base_url'],
+            )
+        else:
+            connection_api_config = DEFAULT_MODEL_CONNECTION_API_CONFIG
+
+        yield type(model_info['showed_model_name'], (BaseLLM,), {**model_info, 'config': connection_api_config})
 
 
 AVAILABLE_LLM_MODELS = tuple(load_llm_models_config())
@@ -596,7 +658,7 @@ class Embedding:
     model_name = 'text-embedding-3-small'
     max_tokens = 8191
     price = 0.02 / 1_000_000
-    config = OPENAI_CONFIG
+    config = DEFAULT_MODEL_CONNECTION_API_CONFIG
     max_input = 16
 
     @classmethod
@@ -648,7 +710,7 @@ class BaseDrawer(abc.ABC):
     max_prompt_length: int
     size: str
     has_vision: bool
-    config: OpenAiConfig
+    config: ApiConnectionConfig
 
     @classmethod
     async def create(cls, text: str) -> DrawerResponse:
@@ -716,7 +778,7 @@ class GPTImage(BaseDrawer):
     max_prompt_length = 10_000
     size = '1536x1024'
     has_vision = True
-    config = OPENAI_CONFIG
+    config = DEFAULT_MODEL_CONNECTION_API_CONFIG
 
 
 @dataclasses.dataclass
@@ -729,7 +791,7 @@ class BaseTranscriber(abc.ABC):
     model_name: str
     input_price: float
     output_price: float
-    config: OpenAiConfig
+    config: ApiConnectionConfig
 
     @classmethod
     async def process(cls, audio: typing.BinaryIO) -> TranscriberResponse:
@@ -749,7 +811,7 @@ class Gpt4oTranscriber(BaseTranscriber):
     model_name = 'gpt-4o-transcribe'
     input_price = 2.5 / 1_000_000
     output_price = 10 / 1_000_000
-    config = OPENAI_CONFIG
+    config = DEFAULT_MODEL_CONNECTION_API_CONFIG
 
 
 @dataclasses.dataclass(frozen=True)
@@ -759,7 +821,7 @@ class ModeratorResponse:
 
 class BaseModerator(abc.ABC):
     model_name: str
-    config: OpenAiConfig
+    config: ApiConnectionConfig
 
     @classmethod
     async def process(cls, text: str) -> ModeratorResponse:
