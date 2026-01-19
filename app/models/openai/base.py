@@ -276,6 +276,7 @@ class BaseLLM:
     has_vision: bool = False
     is_reasoning: bool = False
     use_old_api: bool = False
+    _background_tasks: set = set()
 
     @classmethod
     async def process(cls,
@@ -391,6 +392,11 @@ class BaseLLM:
             parsed_content = None
         else:
             parsed_content = response_format.model_validate_json(content)
+
+        if config.CLEAN_RESPONSES:
+            task = asyncio.create_task(cls.config.client.responses.delete(response.id))
+            cls._background_tasks.add(task)
+            task.add_done_callback(cls._background_tasks.discard)
 
         return LLMResponse(
             content=content,
