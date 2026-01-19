@@ -9,6 +9,7 @@ import typing
 from contextlib import ExitStack
 from functools import cached_property
 
+import httpx
 import openai
 import yaml
 from openai import APIConnectionError, AsyncOpenAI
@@ -60,17 +61,24 @@ class ApiConnectionConfig:
 
     @cached_property
     def client(self) -> AsyncAzureOpenAI | AsyncOpenAI:
+        timeout = httpx.Timeout(
+            timeout=datetime.timedelta(minutes=30).total_seconds(),
+            connect=datetime.timedelta(seconds=30).total_seconds(),
+        )
+
         if self.azure_endpoint:
             client = AsyncAzureOpenAI(
                 azure_endpoint=self.azure_endpoint,
                 azure_deployment=self.azure_deployment,
                 api_version=self.api_version,
                 api_key=self.api_key,
+                timeout=timeout,
             )
         else:
             client = AsyncOpenAI(
                 base_url=self.base_url,
                 api_key=self.api_key,
+                timeout=timeout,
             )
 
         return client
