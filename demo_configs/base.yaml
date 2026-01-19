@@ -9,3 +9,4 @@ use_webview: false
 host_name: "localhost"
 port: 20770
 uploads_dir: "/tmp"
+clean_responses: false

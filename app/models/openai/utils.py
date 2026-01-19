@@ -181,7 +181,7 @@ def prepare_llm_response_content(content: str | None) -> str | None:
     return content
 
 
-async def process_llm_request_via_old_api(*, llm: 'BaseLLM', llm_request: 'LLMRequest') -> Response:
+async def process_llm_request_via_old_api(*, llm: type['BaseLLM'], llm_request: 'LLMRequest') -> Response:
     raw_llm_request = llm_request.dump()
     raw_llm_request['messages'] = raw_llm_request.pop('input')
 

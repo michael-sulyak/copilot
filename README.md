@@ -12,7 +12,7 @@
 ## Features
 
 - Web-based chat interface built with React.
-- Integration with AI models such as GPT-4, GPT-3, DALL·E, and Whisper (you can use OpenAI API or OpenRouter).
+- Integration with AI models such as GPT, GPT Images, and Whisper (you can use OpenAI API or OpenRouter).
 - Support for file and audio uploads.
 - JSON-RPC over WebSocket for asynchronous client-server communication.
 - Fully asynchronous server-side code implemented with Python and aiohttp.

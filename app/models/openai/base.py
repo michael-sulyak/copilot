@@ -667,13 +667,11 @@ class DrawerResponse:
     data: bytes | None = None
     cost: float | None = None
 
-
 class BaseDrawer(abc.ABC):
     model_name: str
     input_price: float
     output_price: float
     max_prompt_length: int
-    size: str
     has_vision: bool
     config: ApiConnectionConfig
 
@@ -687,7 +685,6 @@ class BaseDrawer(abc.ABC):
             n=1,
             model=cls.model_name,
             quality='high',
-            size=cls.size,
         )
 
         if response.data[0].url is None:
@@ -720,7 +717,6 @@ class BaseDrawer(abc.ABC):
                 n=1,
                 model=cls.model_name,
                 quality='high',
-                size=cls.size,
                 image=opened_images,
             )
 
@@ -737,11 +733,10 @@ class BaseDrawer(abc.ABC):
 
 
 class GPTImage(BaseDrawer):
-    model_name = 'gpt-image-1'
-    input_price = 10 / 1_000_000
-    output_price = 40 / 1_000_000
+    model_name = 'gpt-image-1.5'
+    input_price = 8 / 1_000_000
+    output_price = 32 / 1_000_000
     max_prompt_length = 10_000
-    size = '1536x1024'
     has_vision = True
     config = DEFAULT_MODEL_CONNECTION_API_CONFIG
 

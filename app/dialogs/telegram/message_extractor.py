@@ -5,12 +5,9 @@ import typing
 import telethon.tl.types
 from telethon import TelegramClient
 from telethon.tl.custom import Message as TelegramMessage
-from telethon.tl.functions.channels import (
-    GetForumTopicsRequest,
-)
 from telethon.tl.functions.messages import (
     GetDialogFiltersRequest,
-    ReadDiscussionRequest,
+    GetForumTopicsRequest, ReadDiscussionRequest,
 )
 
 from ...utils.common import escape_markdown
