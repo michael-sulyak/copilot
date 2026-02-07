@@ -8,6 +8,8 @@ class LLMMessageRoles:
 class LLMToolParamTypes:
     STRING = 'string'
     OBJECT = 'object'
+    ARRAY = 'array'
+    BOOLEAN = 'boolean'
 
 
 class LLMContentTypes:

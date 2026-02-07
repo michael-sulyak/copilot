@@ -25,9 +25,12 @@ from openai.types.responses import (
 from pydantic import BaseModel
 
 from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTSET
-from .utils import num_tokens_from_messages, prepare_llm_response_content, process_llm_request_via_old_api
+from .utils import (
+    format_tool_chat_message, num_tokens_from_messages, prepare_llm_response_content,
+    process_llm_request_via_old_api,
+)
 from ... import config
-from ...utils.common import chunk_generator, gen_optimized_json
+from ...utils.common import chunk_generator
 from ...utils.local_file_storage import File
 
 
@@ -170,6 +173,39 @@ class LLMToolParam:
     description: str
     enum: tuple[str, ...] | None = None
     required: bool = False
+    items: typing.Optional['LLMToolParams'] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class LLMToolParams:
+    type: str = LLMToolParamTypes.OBJECT
+    items: typing.Self | None = None
+    parameters: tuple[LLMToolParam, ...] | None = None
+
+    def dump(self) -> dict:
+        result: dict[str, typing.Any] = {'type': self.type}
+
+        if self.type == LLMToolParamTypes.OBJECT:
+            result['properties'] = {}
+            result['required'] = []
+
+            if self.parameters:
+                for parameter in self.parameters:
+                    result['properties'][parameter.name] = {
+                        'type': parameter.type,
+                        'description': parameter.description,
+                    }
+
+                    if parameter.enum is not None:
+                        result['properties'][parameter.name]['enum'] = list(parameter.enum)
+
+                    if parameter.items is not None:
+                        result['properties'][parameter.name]['items'] = parameter.items.dump()
+
+                    if parameter.required:
+                        result['required'].append(parameter.name)
+
+        return result
 
 
 @dataclasses.dataclass(frozen=True)
@@ -192,34 +228,20 @@ class BaseLLMTool(abc.ABC):
 class FunctionLLMTool(BaseLLMTool):
     name: str
     description: str
-    parameters: tuple[LLMToolParam, ...]
+    parameters: tuple[LLMToolParam, ...] | LLMToolParams
     func: typing.Callable | None = None
 
     def dump(self) -> dict:
-        properties = {}
-        required = []
+        parameters = self.parameters
 
-        for parameter in self.parameters:
-            properties[parameter.name] = {
-                'type': parameter.type,
-                'description': parameter.description,
-            }
-
-            if parameter.enum is not None:
-                properties[parameter.name]['enum'] = list(parameter.enum)
-
-            if parameter.required:
-                required.append(parameter.name)
+        if not isinstance(self.parameters, LLMToolParams):
+            parameters = LLMToolParams(parameters=parameters)
 
         return {
             'name': self.name,
             'type': 'function',
             'description': self.description,
-            'parameters': {
-                'type': LLMToolParamTypes.OBJECT,
-                'properties': properties,
-                'required': required,
-            },
+            'parameters': parameters.dump(),
         }
 
 
@@ -265,8 +287,8 @@ class LLMRequest:
 
         if self.tools is not NOTSET:
             result['tools'] = [
-                function.dump()
-                for function in self.tools
+                tool.dump()
+                for tool in self.tools
             ]
 
         return result
@@ -430,6 +452,7 @@ class BaseLLM:
         max_steps: int = 8,
         check_total_length: bool = False,
         stop_when: typing.Callable[[LLMToolCall, typing.Any], bool] | None = None,
+        logger: typing.Callable | None = None,
     ) -> LLMResponse:
         """
         Runs the model-tool loop:
@@ -474,9 +497,23 @@ class BaseLLM:
                     tool_trace.append(call)
 
                     history.append(LLMMessage(
-                        role=LLMMessageRoles.ASSISTANT,
-                        content=f'Execute tool: "{call.name}":\nArguments:\n{gen_optimized_json(call.args)}',
+                        role=LLMMessageRoles.SYSTEM,
+                        content=format_tool_chat_message(
+                            tool_name=call.name,
+                            stage='call',
+                            arguments=call.raw_args,
+                            for_user=False,
+                        ),
                     ))
+
+                    if logger:
+                        await logger(
+                            format_tool_chat_message(
+                                tool_name=call.name,
+                                stage='call',
+                                arguments=call.raw_args,
+                            ),
+                        )
 
                     exec_fn = executors_map.get(call.name)
                     if not call.is_valid or exec_fn is None:
@@ -487,19 +524,55 @@ class BaseLLM:
                         ))
                         continue
 
+                    result_value = None
+
                     try:
                         maybe_coro = exec_fn(call)
                         result_value = await maybe_coro if asyncio.iscoroutine(maybe_coro) else maybe_coro
                     except Exception:
                         logging.exception(f'Exception while executing tool "{call.name}"')
-                        result_value = f'ERROR: Unexpected exception while executing tool "{call.name}"'
 
-                    result_content = f'Executed tool: "{call.name}":\nResult:\n{result_value}'
+                        history.append(
+                            LLMMessage(
+                                role=LLMMessageRoles.SYSTEM,
+                                content=format_tool_chat_message(
+                                    tool_name=call.name,
+                                    stage='error',
+                                    arguments=call.raw_args,
+                                    error='Unexpected exception while executing tool',
+                                    for_user=False,
+                                ),
+                            ),
+                        )
 
-                    history.append(LLMMessage(
-                        role=LLMMessageRoles.SYSTEM,
-                        content=result_content,
-                    ))
+                        if logger:
+                            await logger(
+                                format_tool_chat_message(
+                                    tool_name=call.name,
+                                    stage='error',
+                                    arguments=call.raw_args,
+                                    error='Unexpected exception while executing tool',
+                                ),
+                            )
+                    else:
+                        history.append(LLMMessage(
+                            role=LLMMessageRoles.SYSTEM,
+                            content=format_tool_chat_message(
+                                tool_name=call.name,
+                                stage='result',
+                                result=result_value,
+                                for_user=False,
+                            ),
+                        ))
+
+                        if logger:
+                            await logger(
+                                format_tool_chat_message(
+                                    tool_name=call.name,
+                                    stage='result',
+                                    result=result_value,
+                                ),
+                            )
 
                     if stop_when and stop_when(call, result_value):
                         final_turn = await cls.process(
@@ -666,6 +739,7 @@ class DrawerResponse:
     url: str | None = None
     data: bytes | None = None
     cost: float | None = None
+
 
 class BaseDrawer(abc.ABC):
     model_name: str

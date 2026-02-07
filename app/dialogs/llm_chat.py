@@ -1,11 +1,11 @@
 import logging
 import typing
 
-from .base import BaseDialog, DialogError, Message, Request
+from .base import BaseDialog, DialogError, Discussion, Message, Request
 from .profiles import BaseProfile
 from .tools import BaseLLMTool
 from ..memory import BaseMemory
-from ..models.openai.base import BaseLLM, LLMMessage
+from ..models.openai.base import BaseLLM, LLMMessage, LLMResponse
 from ..models.openai.constants import LLMMessageRoles, NOTSET
 from ..utils.file_processor import FileProcessor
 
@@ -75,9 +75,9 @@ class Dialog(BaseDialog):
         logging.info(f'Count of other attachments: {len(attachments)}')
 
         await request.discussion.set_text_status(f'Processing via {self.model.showed_model_name}...')
-        await request.discussion.answer(await self.handle_via_gpt())
+        await request.discussion.answer(await self.handle_via_llm(discussion=request.discussion))
 
-    async def handle_via_gpt(self) -> Message:
+    async def handle_via_llm(self, *, discussion: Discussion) -> Message:
         logging.info('History: %s', self.memory.get_buffer())
 
         params = {}
@@ -96,9 +96,12 @@ class Dialog(BaseDialog):
             params['tools'] = self.tools
 
         try:
-            response = await self.model.process(
-                messages=self.memory.get_buffer(),
-                **params,
+            response = await self._process(
+                discussion=discussion,
+                model_params={
+                    'messages': self.memory.get_buffer(),
+                    **params,
+                },
             )
         except Exception as e:
             logging.exception(e)
@@ -120,3 +123,8 @@ class Dialog(BaseDialog):
 
     async def clear_history(self) -> None:
         self.memory.clear()
+
+    async def _process(self, *, discussion: Discussion, model_params: dict) -> LLMResponse:
+        return await self.model.process(
+            **model_params,
+        )

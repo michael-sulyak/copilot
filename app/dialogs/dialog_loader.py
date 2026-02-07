@@ -3,6 +3,7 @@ import typing
 import yaml
 
 from .base import BaseDialog
+from .code_reviewer.dialogs import CodeReviewer
 from .drawer_chat import GptImageDialog
 from .greetings import GreetingsDialog
 from .llm_chat import Dialog
@@ -63,7 +64,7 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
     if dialog_type == 'greetings':
         return name, LazyDialog(lambda: GreetingsDialog())
 
-    if dialog_type == 'telegram_content_generator':
+    if dialog_type == 'telegram_content_generator':  # TODO: Refactor dialog describing here.
         model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         extra = dialog_data.get('extra', {})
         return name, LazyDialog(lambda: TelegramContentGeneratorDialog(
@@ -79,6 +80,25 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
             gpt_model=model,
             model_params=model_params,
             **extra,
+        ))
+
+    if dialog_type == 'code_reviewer':
+        profile_slug = dialog_data.get('profile')
+        profile = PROFILES.get(profile_slug)
+        memory_data = dialog_data.get('memory', {})
+        memory = Memory(**memory_data)
+        model = AVAILABLE_LLM_MODELS_MAP[model_name]()
+        files_supported = dialog_data.get('files_supported', False)
+        work_dirs = dialog_data.get('work_dirs', [])
+        tools = dialog_data.get('tools', [])
+
+        return name, LazyDialog(lambda: CodeReviewer(
+            profile=profile,
+            memory=memory,
+            model=model,
+            files_are_supported=files_supported,
+            work_dirs=work_dirs,
+            tools=tools,  # TODO: `Dialog` also has `tools`
         ))
 
     raise ValueError(f'Unknown dialog type: {dialog_type}')

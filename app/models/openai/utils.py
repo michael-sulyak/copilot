@@ -18,6 +18,8 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from tiktoken.model import MODEL_TO_ENCODING
 from tiktoken.registry import get_encoding
 
+from ...tools.additional_utils import fence_code
+
 
 if typing.TYPE_CHECKING:
     from app.models.openai.base import BaseLLM, LLMRequest
@@ -233,3 +235,59 @@ async def process_llm_request_via_old_api(*, llm: type['BaseLLM'], llm_request: 
     )
 
     return response
+
+
+def format_tool_chat_message(
+    *,
+    tool_name: str,
+    stage: str,
+    arguments: str | None = None,
+    result: typing.Any = None,
+    error: str | None = None,
+    for_user: bool = True,
+) -> str:
+    """
+    Formats a user-friendly chat message for tool execution.
+
+    stage:
+        - "call"    -> tool is about to be executed
+        - "result"  -> tool execution finished successfully
+        - "error"   -> tool execution failed
+    """
+
+    header_map = {
+        'call': "🚀 **Tool execution started**",
+        'result': "✅ **Tool execution completed**",
+        'error': "❌ **Tool execution failed**",
+    }
+
+    lines: list[str] = []
+
+    # Header
+    lines.append(f'{header_map[stage]}')
+    lines.append(f'\n🛠️ Tool: `{tool_name}`')
+
+    # Arguments
+    if arguments is not None:
+        lines.append('\n📥 Arguments')
+        lines.append(fence_code(arguments, lang='json'))
+
+    # Result
+    if result is not None:
+        if for_user:
+            lines.append('\n📤 Result\n\n---')
+            lines.append(str(result))
+        else:
+            lines.append('\n📤 Result (result will be after `---`)\n\n---')
+            lines.append(str(result))
+
+    # Error
+    if error is not None:
+        if for_user:
+            lines.append('\n⚠️ Error')
+            lines.append(str(error))
+        else:
+            lines.append('\n⚠️ Error (error will be after `---`)\n---')
+            lines.append(str(error))
+
+    return '\n'.join(lines)
