@@ -300,12 +300,14 @@ class BaseLLM:
     max_tokens: int
     input_price: float
     output_price: float
-    min_response_volume = 0.1
-    max_retries: int = 3
+    min_response_volume = 0.05
+    max_retries: int = 8
     config: ApiConnectionConfig
     has_vision: bool = False
     is_reasoning: bool = False
     use_old_api: bool = False
+    delay_for_status_checking: float = 0.5
+    clean_responses: bool | None = None
     _background_tasks: set = set()
 
     @classmethod
@@ -313,10 +315,11 @@ class BaseLLM:
                       messages: typing.Sequence[LLMMessage], *,
                       temperature: float | NOTSET = NOTSET,
                       top_p: float | NOTSET = NOTSET,
-                      check_total_length: bool = False,
+                      check_total_length: bool = True,
                       tools: tuple[BaseLLMTool, ...] | NOTSET = NOTSET,
                       response_format: type[BaseModel] | NOTSET = NOTSET,
                       reasoning_effort: str | NOTSET = NOTSET,
+                      use_background_processing: bool = True,
                       _count_of_repeats: int = 0) -> LLMResponse:
         started_at = datetime.datetime.now()
 
@@ -335,41 +338,29 @@ class BaseLLM:
 
         count_of_tokens = cls.count_tokens(messages)
 
-        logging.info('Expected count of tokens: %s', count_of_tokens)
+        logging.info('Expected count of tokens: %s (%s%%)', count_of_tokens, round(count_of_tokens / cls.max_tokens * 100, 2))
 
-        if not cls.has_enough_tokens_to_answer(count_of_tokens):
+        if check_total_length and not cls.has_enough_tokens_to_answer(count_of_tokens):
             raise openai.OpenAIError('There are too few tokens left to answer.')
 
-        response = None
+        if cls.use_old_api:
+            response = await cls._make_raw_request(lambda: process_llm_request_via_old_api(llm=cls, llm_request=llm_request))
+            use_background_processing = False
+        else:
+            response = await cls._make_raw_request(lambda: cls.config.client.responses.create(**llm_request.dump(), background=use_background_processing))
 
-        for attempt in range(1, cls.max_retries + 1):
-            backoff = 2 ** attempt
+        if use_background_processing:
+            async def _check_response() -> None:
+                nonlocal response
 
-            try:
-                if cls.use_old_api:
-                    response = await process_llm_request_via_old_api(llm=cls, llm_request=llm_request)
-                else:
-                    response = await cls.config.client.responses.create(**llm_request.dump())
-            except openai.RateLimitError as e:
-                logging.warning(e)
+                while response.status in {'queued', 'in_progress'}:
+                    logging.info(f'Current status of background request: "{response.status}"')
+                    await asyncio.sleep(cls.delay_for_status_checking)
+                    response = await cls.config.client.responses.retrieve(response.id)
 
-                if attempt >= cls.max_retries:
-                    raise
+                logging.info(f'Last status of background request: "{response.status}"')
 
-                logging.warning(e)
-
-                await asyncio.sleep(backoff)
-            except APIConnectionError as e:
-                logging.warning(e)
-
-                if attempt >= cls.max_retries:
-                    raise
-
-                logging.warning(e)
-
-                await asyncio.sleep(backoff)
-            else:
-                break
+            await cls._make_raw_request(_check_response)
 
         logging.info('Response: %s', response)
 
@@ -423,7 +414,7 @@ class BaseLLM:
         else:
             parsed_content = response_format.model_validate_json(content)
 
-        if config.CLEAN_RESPONSES:
+        if cls.clean_responses or (cls.clean_responses is None and config.CLEAN_RESPONSES):
             task = asyncio.create_task(cls.config.client.responses.delete(response.id))
             cls._background_tasks.add(task)
             task.add_done_callback(cls._background_tasks.discard)
@@ -450,7 +441,7 @@ class BaseLLM:
         reasoning_effort: str | NOTSET = NOTSET,
         response_format: type[BaseModel] | NOTSET = NOTSET,
         max_steps: int = 8,
-        check_total_length: bool = False,
+        check_total_length: bool = True,
         stop_when: typing.Callable[[LLMToolCall, typing.Any], bool] | None = None,
         logger: typing.Callable | None = None,
     ) -> LLMResponse:
@@ -476,7 +467,7 @@ class BaseLLM:
 
         for step in range(1, max_steps + 1):
             current_tokens = cls.count_tokens(history)
-            if not cls.has_enough_tokens_to_answer(current_tokens):
+            if check_total_length and not cls.has_enough_tokens_to_answer(current_tokens):
                 raise openai.OpenAIError('There are too few tokens left to answer.')
 
             step_response = await cls.process(
@@ -486,6 +477,7 @@ class BaseLLM:
                 check_total_length=check_total_length,
                 tools=tools,
                 reasoning_effort=reasoning_effort,
+                use_background_processing=True,
             )
 
             total_cost += step_response.cost
@@ -583,6 +575,7 @@ class BaseLLM:
                             tools=tools,
                             response_format=response_format,
                             reasoning_effort=reasoning_effort,
+                            use_background_processing=True,
                         )
                         total_cost += final_turn.cost
                         total_tokens += final_turn.total_tokens
@@ -599,10 +592,20 @@ class BaseLLM:
 
                 continue
             else:
-                history.append(LLMMessage(
-                    role=LLMMessageRoles.ASSISTANT,
-                    content=step_response.content,
-                ))
+                if step_response.content is None:
+                    history.append(LLMMessage(
+                        role=LLMMessageRoles.ASSISTANT,
+                        content='',
+                    ))
+                    history.append(LLMMessage(
+                        role=LLMMessageRoles.SYSTEM,
+                        content='Got empty response. Process the request again',
+                    ))
+                else:
+                    history.append(LLMMessage(
+                        role=LLMMessageRoles.ASSISTANT,
+                        content=step_response.content,
+                    ))
 
             if step_response.content is not None:
                 parsed_content = None
@@ -651,6 +654,40 @@ class BaseLLM:
 
         return count_of_tokens + cls.max_tokens * min_response_volume <= cls.max_tokens
 
+    @classmethod
+    async def _make_raw_request(cls, func: typing.Callable) -> typing.Any:
+        response = None
+
+        for attempt in range(1, cls.max_retries + 1):
+            backoff = 2 ** attempt
+
+            try:
+                response = await func()
+            except (openai.RateLimitError, openai.InternalServerError,) as e:
+                logging.warning(e, exc_info=True)
+
+                if attempt >= cls.max_retries:
+                    raise
+
+                logging.warning(e)
+
+                logging.info('Sleep %s seconds before retrying', backoff)
+                await asyncio.sleep(backoff)
+            except APIConnectionError as e:
+                logging.warning(e)
+
+                if attempt >= cls.max_retries:
+                    raise
+
+                logging.warning(e)
+
+                logging.info('Sleep %s seconds before retrying', backoff)
+                await asyncio.sleep(backoff)
+            else:
+                break
+
+        return response
+
 
 DEFAULT_MODEL_CONNECTION_API_CONFIG = ApiConnectionConfig(
     api_key=config.MODEL_CONNECTION_API_KEY,
@@ -662,7 +699,7 @@ def load_llm_models_config() -> typing.Generator:
     with open(config.MODELS_PATH) as file:
         models_config = yaml.safe_load(file)
 
-    model_infos = models_config.get('gpt_models', [])
+    model_infos = models_config.get('llm_models', [])
 
     for model_info in model_infos:
         model_info['input_price'] = float(model_info['input_price'])

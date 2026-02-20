@@ -3,7 +3,7 @@ import typing
 import yaml
 
 from .base import BaseDialog
-from .code_reviewer.dialogs import CodeReviewer
+from .code_reviewer.dialogs import CodeManager
 from .drawer_chat import GptImageDialog
 from .greetings import GreetingsDialog
 from .llm_chat import Dialog
@@ -82,7 +82,7 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
             **extra,
         ))
 
-    if dialog_type == 'code_reviewer':
+    if dialog_type == 'code_manager':
         profile_slug = dialog_data.get('profile')
         profile = PROFILES.get(profile_slug)
         memory_data = dialog_data.get('memory', {})
@@ -92,7 +92,7 @@ def create_dialog(dialog_data: dict) -> tuple[str, LazyDialog | BaseDialog]:
         work_dirs = dialog_data.get('work_dirs', [])
         tools = dialog_data.get('tools', [])
 
-        return name, LazyDialog(lambda: CodeReviewer(
+        return name, LazyDialog(lambda: CodeManager(
             profile=profile,
             memory=memory,
             model=model,

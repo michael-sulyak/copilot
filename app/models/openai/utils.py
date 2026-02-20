@@ -112,7 +112,8 @@ def num_tokens_from_message(message: ChatCompletionMessageParam, model: str, def
         elif isinstance(value, str):
             num_tokens += len(encoding.encode(value))
         else:
-            raise ValueError(f'Could not encode unsupported message value type: {type(value)}')
+            raise ValueError(f'Could not encode unsupported message value type: {type(value)}, message: {message}')
+
         if key == 'name':
             num_tokens += 1
 
@@ -269,25 +270,25 @@ def format_tool_chat_message(
 
     # Arguments
     if arguments is not None:
-        lines.append('\n📥 Arguments')
+        lines.append('\n📥 Arguments:')
         lines.append(fence_code(arguments, lang='json'))
 
     # Result
     if result is not None:
         if for_user:
-            lines.append('\n📤 Result\n\n---')
+            lines.append('\n📤 Result:\n\n---')
             lines.append(str(result))
         else:
-            lines.append('\n📤 Result (result will be after `---`)\n\n---')
+            lines.append('\n📤 Result (result will be after `---`):\n\n---')
             lines.append(str(result))
 
     # Error
     if error is not None:
         if for_user:
-            lines.append('\n⚠️ Error')
+            lines.append('\n⚠️ Error:\n\n---')
             lines.append(str(error))
         else:
-            lines.append('\n⚠️ Error (error will be after `---`)\n---')
+            lines.append('\n⚠️ Error (error will be after `---`):\n\n---')
             lines.append(str(error))
 
     return '\n'.join(lines)

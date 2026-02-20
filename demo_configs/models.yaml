@@ -1,4 +1,4 @@
-gpt_models:
+llm_models:
   - showed_model_name: "GPT5"
     model_name: "gpt-5"
     max_tokens: 400000

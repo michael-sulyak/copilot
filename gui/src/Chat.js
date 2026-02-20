@@ -12,6 +12,7 @@ import useAudioRecording from './hooks/useAudioRecording'
 import useDialog from './hooks/useDialog'
 import useInput from './hooks/useInput'
 
+
 function Chat() {
     const chatBodyRef = useRef(null)
     const textareaRef = useRef(null)
@@ -34,7 +35,7 @@ function Chat() {
             console.error(response)
             await addNotification(`**${response.message}**\n\n${response?.data?.traceback_exception?.slice(-2)}\n\n(See logs)`)
         },
-        [addNotification]
+        [addNotification],
     )
     const {settings, getSettings} = useSettings({addNotification, processRpcError})
     const {chatState, updateChatState} = useChatState()
@@ -42,7 +43,15 @@ function Chat() {
         addNotification,
         updateChatState,
     })
-    const {inputValue, setInputValue, sendMessage, deleteMessage, callButtonCallback, isWaitingAnswer, handleInputChange} = useInput({
+    const {
+        inputValue,
+        setInputValue,
+        sendMessage,
+        deleteMessage,
+        callButtonCallback,
+        isWaitingAnswer,
+        handleInputChange,
+    } = useInput({
         textareaRef,
         addNotification,
         attachedFiles,
@@ -73,22 +82,21 @@ function Chat() {
 
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
-            <Header settings={settings} activateDialog={activateDialog} clearDialog={clearDialog} insertText={setInputValue} />
+            <Header settings={settings} activateDialog={activateDialog} clearDialog={clearDialog}
+                    insertText={setInputValue}/>
 
-            <div className="chat-scroll-clip">
-                <Card.Body className="chat-body" ref={chatBodyRef}>
-                    <div className="chat-body-shadow"></div>
-                    {messages.map((message, index) => (
-                        <Message
-                            key={index}
-                            message={message}
-                            addNotification={addNotification}
-                            deleteMessage={deleteMessage}
-                            callButtonCallback={callButtonCallback}
-                        />
-                    ))}
-                </Card.Body>
-            </div>
+            <Card.Body className="chat-body" ref={chatBodyRef}>
+                <div className="chat-body-shadow"></div>
+                {messages.map((message, index) => (
+                    <Message
+                        key={index}
+                        message={message}
+                        addNotification={addNotification}
+                        deleteMessage={deleteMessage}
+                        callButtonCallback={callButtonCallback}
+                    />
+                ))}
+            </Card.Body>
 
             <Footer
                 handleInputChange={handleInputChange}
@@ -110,7 +118,7 @@ function Chat() {
             <ToastContainer position="top-center" className="position-fixed">
                 {notifications.map((notification, index) => (
                     <Fragment key={index}>
-                        <Notification notification={notification} onHide={() => removeNotification(notification.id)} />
+                        <Notification notification={notification} onHide={() => removeNotification(notification.id)}/>
                     </Fragment>
                 ))}
             </ToastContainer>

@@ -5,9 +5,8 @@ import subprocess
 import typing
 from pathlib import Path
 
-from .additional_utils import (
-    fence_code, iter_all_files, list_dir_entries_md, nearest_existing_dir, resolve_path, suggest_similar_paths,
-)
+from .additional_utils import fence_code, suggest_similar_paths
+from .file_system import FileSystem
 from ..models.openai.base import FunctionLLMTool, LLMToolCall, LLMToolParam, LLMToolParams
 from ..models.openai.constants import LLMToolParamTypes
 
@@ -67,75 +66,52 @@ class ReadFilesTool(BaseLLMToolFabric):
     )
 
     def __init__(self, work_dir: Path) -> None:
-        self.work_dir = Path(work_dir).resolve()
+        self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(self, *, paths: typing.Sequence[str]) -> str:
-        all_files_cache: list[str] | None = None
+        candidates_cache: list[str] | None = None
         parts: list[str] = ['**Read files:**\n']
 
         for path_str in paths:
-            parts.append(f'---\n')
+            parts.append('\n---\n')
             parts.append(f'`{path_str}`\n')
 
             try:
-                target = resolve_path(self.work_dir, path_str)
-            except Exception as e:
-                parts.append(
-                    '**ERROR:** Invalid path.\n\n'
-                    f'- Requested: `{path_str}`\n'
-                    f'- Error: `{e}`\n'
-                )
+                content = self.fs.read_text(path_str, encoding='utf-8')
+                parts.append(fence_code(content, lang=''))
                 continue
+            except FileNotFoundError:
+                if candidates_cache is None:
+                    # Suggest only allowed (non-ignored) files
+                    candidates_cache = self.fs.list_files('.', recursive=True)
 
-            if target.exists() and target.is_dir():
-                rel_dir = target.relative_to(self.work_dir).as_posix()
-                parts.append(f'**ERROR:** Path is a directory: `{rel_dir}/`\n\n')
-                parts.append(list_dir_entries_md(target, self.work_dir) + '\n')
-                parts.append('Tip: use `list_files` for directories.\n')
-                continue
-
-            if not target.exists():
-                if all_files_cache is None:
-                    all_files_cache = iter_all_files(self.work_dir)
-
-                suggestions = suggest_similar_paths(path_str, all_files_cache, limit=10)
+                suggestions = suggest_similar_paths(path_str, candidates_cache, limit=10)
 
                 parts.append('**ERROR:** File not found.\n\n')
                 parts.append(f'- Requested: `{path_str}`\n')
-
                 if suggestions:
                     parts.append('\nDid you mean one of these?\n')
                     parts.extend(f'- `{s}`\n' for s in suggestions)
                     parts.append('\n')
-                else:
-                    requested_parent = resolve_path(self.work_dir, str(Path(path_str).parent or '.'))
-                    nearest_dir = nearest_existing_dir(requested_parent, self.work_dir)
-                    listing = list_dir_entries_md(nearest_dir, self.work_dir, limit=50)
-                    if listing:
-                        parts.append('\n' + listing + '\n')
-                    else:
-                        parts.append('\nNo files found to suggest.\n')
-
+                continue
+            except IsADirectoryError:
+                parts.append('**ERROR:** Path is a directory.\n\n')
+                parts.append('Tip: use `list_files` for directories.\n')
+                continue
+            except PermissionError as e:
+                parts.append('**ERROR:** Permission denied.\n\n')
+                parts.append(f'- Error: `{e}`\n')
+                continue
+            except ValueError as e:
+                parts.append('**ERROR:** Invalid path.\n\n')
+                parts.append(f'- Error: `{e}`\n')
+                continue
+            except OSError as e:
+                parts.append('**ERROR:** Failed to read file.\n\n')
+                parts.append(f'- Error: `{e}`\n')
                 continue
 
-            if not target.is_file():
-                parts.append('**ERROR:** Path exists but is not a regular file.\n\n')
-                continue
-
-            try:
-                content = target.read_text(encoding='utf-8', errors='ignore')
-            except Exception as e:
-                parts.append(
-                    '**ERROR:** Failed to read file.\n\n'
-                    f'- Error: `{e}`\n'
-                )
-                continue
-
-            # rel = target.relative_to(self.work_dir).as_posix()
-            # parts.append(f'Path: `{rel}`\n\n')
-            parts.append(fence_code(content, lang='') + '\n')
-
-        return ''.join(parts).strip() + '\n'
+        return ''.join(parts).strip()
 
 
 class ListFilesTool(BaseLLMToolFabric):
@@ -159,51 +135,41 @@ class ListFilesTool(BaseLLMToolFabric):
     )
 
     def __init__(self, work_dir: Path) -> None:
-        self.work_dir = Path(work_dir).resolve()
+        self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(self, *, path: str = '.', recursive: bool = False) -> str:
         try:
-            target = resolve_path(self.work_dir, path)
-        except Exception as e:
+            files = self.fs.list_files(path, recursive=bool(recursive), include_dirs=True)
+        except ValueError as e:
             return (
                 '**ERROR:** Invalid path\n\n'
                 f'- Requested: `{path}`\n'
                 f'- Error: `{e}`\n'
             )
-
-        if not target.exists():
+        except FileNotFoundError:
             return (
                 '**ERROR:** Path not found\n\n'
                 f'- Requested: `{path}`\n'
             )
-
-        if not target.is_dir():
-            rel = target.relative_to(self.work_dir).as_posix()
+        except NotADirectoryError:
             return (
                 '**ERROR:** Not a directory\n\n'
                 f'- Requested: `{path}`\n'
-                f'- Resolved: `{rel}`\n'
+            )
+        except OSError as e:
+            return (
+                '**ERROR:** Failed to list files\n\n'
+                f'- Requested: `{path}`\n'
+                f'- Error: `{e}`\n'
             )
 
-        if recursive:
-            files = [
-                p.relative_to(self.work_dir).as_posix()
-                for p in target.rglob('*')
-                if p.is_file()
-            ]
-        else:
-            files = [
-                p.relative_to(self.work_dir).as_posix()
-                for p in target.iterdir()
-                if p.is_file()
-            ]
+        rel_dir = self.fs.to_rel_posix(self.fs.resolve(path))
 
-        rel_dir = target.relative_to(self.work_dir).as_posix()
         if not files:
             return f'Files in `{rel_dir}/`\n\nNo files found.\n'
 
         lines = '\n'.join(f'- `{f}`' for f in sorted(files))
-        return f'Files in `{rel_dir}/`\n\n{lines}\n'
+        return f'Files in `{rel_dir}/`\n\n{lines}'
 
 
 class SearchFilesTool(BaseLLMToolFabric):
@@ -228,7 +194,7 @@ class SearchFilesTool(BaseLLMToolFabric):
                 name='use_regex',
                 type=LLMToolParamTypes.BOOLEAN,
                 description=(
-                    'Interpret queries as Python regular expressions. '
+                    'Interpret queries as Python regular expressions to search by row. '
                     'You can use it also to search different words using one tool calling'
                 ),
                 required=False,
@@ -237,7 +203,7 @@ class SearchFilesTool(BaseLLMToolFabric):
     )
 
     def __init__(self, work_dir: Path) -> None:
-        self.work_dir = Path(work_dir).resolve()
+        self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(
         self,
@@ -246,29 +212,6 @@ class SearchFilesTool(BaseLLMToolFabric):
         path: str = '.',
         use_regex: bool = False,
     ) -> str:
-        try:
-            target = resolve_path(self.work_dir, path)
-        except Exception as e:
-            return (
-                '**ERROR:** Invalid path\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`\n'
-            )
-
-        if not target.exists():
-            return (
-                '**ERROR:** Path not found\n\n'
-                f'- Requested: `{path}`\n'
-            )
-
-        if not target.is_dir():
-            rel = target.relative_to(self.work_dir).as_posix()
-            return (
-                '**ERROR:** Not a directory\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Resolved: `{rel}`\n'
-            )
-
         if not queries:
             return '**ERROR:** No queries provided\n'
 
@@ -287,31 +230,44 @@ class SearchFilesTool(BaseLLMToolFabric):
         else:
             patterns = list(queries)
 
+        try:
+            files = self.fs.list_files(path, recursive=True)
+        except ValueError as e:
+            return (
+                '**ERROR:** Invalid path\n\n'
+                f'- Requested: `{path}`\n'
+                f'- Error: `{e}`\n'
+            )
+        except FileNotFoundError:
+            return (
+                '**ERROR:** Path not found\n\n'
+                f'- Requested: `{path}`\n'
+            )
+        except NotADirectoryError:
+            return (
+                '**ERROR:** Not a directory\n\n'
+                f'- Requested: `{path}`\n'
+            )
+        except OSError as e:
+            return (
+                '**ERROR:** Failed to search files\n\n'
+                f'- Requested: `{path}`\n'
+                f'- Error: `{e}`\n'
+            )
+
         matches: list[str] = []
-
-        for file in target.rglob('*'):
-            if not file.is_file():
-                continue
-
+        for rel_file in files:
             try:
-                text = file.read_text(encoding='utf-8', errors='ignore')
-            except Exception:
+                text = self.fs.read_text(rel_file, encoding='utf-8')
+            except (PermissionError, FileNotFoundError, IsADirectoryError, OSError):
+                # If something changes during traversal or is blocked, skip it.
                 continue
-
-            rel_file = file.relative_to(self.work_dir).as_posix()
 
             for i, line in enumerate(text.splitlines(), start=1):
                 for query, pattern in zip(queries, patterns):
-                    found = (
-                        pattern.search(line)
-                        if use_regex
-                        else pattern in line
-                    )
-
+                    found = pattern.search(line) if use_regex else (pattern in line)
                     if found:
-                        matches.append(
-                            f'{rel_file}:{i}: [{query}] {line.strip()}'
-                        )
+                        matches.append(f'{rel_file}:{i}: [{query}] {line.strip()}')
                         break
 
                 if len(matches) >= 500:
@@ -320,7 +276,7 @@ class SearchFilesTool(BaseLLMToolFabric):
             if len(matches) >= 500:
                 break
 
-        rel_dir = target.relative_to(self.work_dir).as_posix()
+        rel_dir = self.fs.to_rel_posix(self.fs.resolve(path))
 
         if not matches:
             return (
@@ -351,7 +307,7 @@ class GitDiffTool(BaseLLMToolFabric):
     def run(self) -> str:
         try:
             diff = subprocess.check_output(
-                ['git', 'diff', 'origin/master'],
+                ['git', 'diff', 'origin/master'],  # TODO: Add check that the branch updated
                 # ['git', 'diff', '--cached'],
                 cwd=self.work_dir,
                 text=True,
@@ -368,9 +324,9 @@ class GitDiffTool(BaseLLMToolFabric):
         return f'Git diff\n\n{fence_code(diff, lang="diff")}\n'
 
 
-class CreateFilesTool(BaseLLMToolFabric):
+class EditFilesTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
-        name='create_files',
+        name='edit_files',
         description=(
             'Create or overwrite multiple text files inside the provided folder. '
             'Creates parent folders if needed.'
@@ -417,7 +373,7 @@ class CreateFilesTool(BaseLLMToolFabric):
     )
 
     def __init__(self, work_dir: Path) -> None:
-        self.work_dir = Path(work_dir).resolve()
+        self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(
         self,
@@ -445,29 +401,23 @@ class CreateFilesTool(BaseLLMToolFabric):
                 continue
 
             try:
-                file_path = resolve_path(self.work_dir, path)
-            except Exception as e:
-                results.append(f'- `{path}`: invalid path ({e})')
-                continue
-
-            try:
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                results.append(f'- `{path}`: failed to create parent folders ({e})')
-                continue
-
-            if file_path.exists() and not overwrite:
-                rel = file_path.relative_to(self.work_dir).as_posix()
-                results.append(f'- `{rel}`: already exists (overwrite=false)')
-                continue
-
-            try:
-                file_path.write_text(content or '', encoding=encoding, errors='strict')
+                self.fs.write_text(
+                    path,
+                    content or '',
+                    overwrite=bool(overwrite),
+                    encoding=encoding,
+                )
                 size = len((content or '').encode(encoding, errors='ignore'))
-                rel = file_path.relative_to(self.work_dir).as_posix()
-                results.append(f'- `{rel}`: written {size} bytes')
+                results.append(f'- `{path}`: written {size} bytes')
                 written += 1
-            except Exception as e:
+
+            except FileExistsError:
+                results.append(f'- `{path}`: already exists (overwrite=false)')
+            except PermissionError as e:
+                results.append(f'- `{path}`: permission denied ({e})')
+            except ValueError as e:
+                results.append(f'- `{path}`: invalid path ({e})')
+            except OSError as e:
                 results.append(f'- `{path}`: write failed ({e})')
 
         return (
@@ -505,37 +455,37 @@ class CreateFolderTool(BaseLLMToolFabric):
     )
 
     def __init__(self, work_dir: Path) -> None:
-        self.work_dir = Path(work_dir).resolve()
+        self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(self, *, path: str, parents: bool = True, exist_ok: bool = True) -> str:
         try:
-            folder_path = resolve_path(self.work_dir, path)
-        except Exception as e:
+            folder_path = self.fs.mkdir(path, parents=bool(parents), exist_ok=bool(exist_ok))
+            rel = self.fs.to_rel_posix(folder_path)
+            return (
+                'Folder created\n\n'
+                f'- Path: `{rel}/`'
+            )
+        except PermissionError as e:
+            return (
+                '**ERROR:** Permission denied\n\n'
+                f'- Requested: `{path}`\n'
+                f'- Error: `{e}`'
+            )
+        except ValueError as e:
             return (
                 '**ERROR:** Invalid path\n\n'
                 f'- Requested: `{path}`\n'
                 f'- Error: `{e}`'
             )
-
-        if folder_path.exists() and folder_path.is_file():
-            rel = folder_path.relative_to(self.work_dir).as_posix()
+        except FileExistsError as e:
             return (
-                '**ERROR:** Cannot create folder because a file exists at that path\n\n'
-                f'- Path: `{rel}`'
-            )
-
-        try:
-            folder_path.mkdir(parents=parents, exist_ok=exist_ok)
-        except Exception as e:
-            rel = folder_path.relative_to(self.work_dir).as_posix()
-            return (
-                '**ERROR:** Failed to create folder\n\n'
-                f'- Folder: `{rel}/`\n'
+                '**ERROR:** Cannot create folder\n\n'
+                f'- Requested: `{path}`\n'
                 f'- Error: `{e}`'
             )
-
-        rel = folder_path.relative_to(self.work_dir).as_posix()
-        return (
-            'Folder created\n\n'
-            f'- Path: `{rel}/`'
-        )
+        except OSError as e:
+            return (
+                '**ERROR:** Failed to create folder\n\n'
+                f'- Requested: `{path}`\n'
+                f'- Error: `{e}`'
+            )

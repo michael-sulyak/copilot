@@ -1,4 +1,4 @@
-from .files import CreateFilesTool, CreateFolderTool, GitDiffTool, ListFilesTool, ReadFilesTool, SearchFilesTool
+from .files import EditFilesTool, CreateFolderTool, GitDiffTool, ListFilesTool, ReadFilesTool, SearchFilesTool
 
 
 TOOLS = (
@@ -6,8 +6,8 @@ TOOLS = (
     ListFilesTool,
     SearchFilesTool,
     GitDiffTool,
-    CreateFilesTool,
-    CreateFolderTool,
+    EditFilesTool,
+    # CreateFolderTool,
 )
 
 TOOLS_MAP = {
