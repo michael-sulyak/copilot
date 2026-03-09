@@ -7,9 +7,9 @@ import uuid
 
 from pydantic import BaseModel
 
+from .constants import Actions, Statuses
 from ..desktop_defs import OutputAction, OutputMessage
 from ..utils.local_file_storage import File
-from .constants import Actions, Statuses
 
 
 if typing.TYPE_CHECKING:
@@ -97,7 +97,12 @@ class Action(BaseAnswer):
         return OutputAction.model_validate(self.to_dict())
 
 
-class Discussion:
+class Conversation:
+    """
+    A communication bridge between a dialog and the DesktopApp, providing
+    methods to send messages, update chat status, and report errors to the UI.
+    """
+
     _chat_status: Statuses.IDLE
 
     def __init__(self, *, app: 'DesktopApp') -> None:
@@ -132,13 +137,18 @@ class Discussion:
 
 @dataclasses.dataclass
 class Request:
-    discussion: Discussion
+    conversation: Conversation
     content: str | None = None
     callback: str | None = None
     attachments: list[File] | None = None
 
 
 class BaseDialog:
+    """
+    Abstract base class defining the lifecycle and behavior of a chat dialog,
+    including message handling, callbacks, initialization, and cleanup.
+    """
+
     files_are_supported: bool = False
 
     async def init(self) -> None:
@@ -155,4 +165,4 @@ class BaseDialog:
         return None
 
     async def handle_callback(self, request: Request) -> None:
-        await request.discussion.answer(Message(content='Not implemented.'))
+        await request.conversation.answer(Message(content='Not implemented.'))

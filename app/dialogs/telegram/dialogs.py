@@ -18,20 +18,20 @@ class TelegramMessageDialog(BaseDialog):
         await self._message_aggregator.init()
 
     async def handle(self, request: Request) -> None:
-        await request.discussion.set_text_status('Gathering and aggregating data...')
+        await request.conversation.set_text_status('Gathering and aggregating data...')
         has_processed_messages = False
 
         try:
             async for answer in self._message_aggregator.iter_aggregated_messages(
-                discussion=request.discussion,
+                conversation=request.conversation,
             ):
-                await request.discussion.answer(answer)
+                await request.conversation.answer(answer)
                 has_processed_messages = True
         except Exception as e:
             logging.exception(e)
-            await request.discussion.answer(Message(content=f'**ERROR:**\n```\n{escape_markdown(str(e))}\n```'))
+            await request.conversation.answer(Message(content=f'**ERROR:**\n```\n{escape_markdown(str(e))}\n```'))
         else:
-            await request.discussion.answer(Message(
+            await request.conversation.answer(Message(
                 content=(
                     'Information processing is completed.'
                     if has_processed_messages else

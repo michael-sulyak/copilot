@@ -20,7 +20,7 @@ class BaseDrawerDialog(BaseDialog, abc.ABC):
         return self.model.has_vision
 
     async def handle(self, request: Request) -> None:
-        await request.discussion.set_text_status('Processing input...')
+        await request.conversation.set_text_status('Processing input...')
 
         images = []
 
@@ -34,10 +34,10 @@ class BaseDrawerDialog(BaseDialog, abc.ABC):
 
         try:
             if images:
-                await request.discussion.set_text_status('Editing image...')
+                await request.conversation.set_text_status('Editing image...')
                 response = await self.model.edit(request.content, images=images)
             else:
-                await request.discussion.set_text_status('Generating image...')
+                await request.conversation.set_text_status('Generating image...')
                 response = await self.model.create(request.content)
         except Exception as e:
             logging.exception(e)
@@ -46,8 +46,8 @@ class BaseDrawerDialog(BaseDialog, abc.ABC):
         if response.url is None:
             response.url = (await self.file_storage.save_file(file_name='image.png', buffer=BytesIO(response.data))).url
 
-        await request.discussion.set_text_status('Sending image...')
-        await request.discussion.answer(Message(content=f'![Image]({response.url})'))
+        await request.conversation.set_text_status('Sending image...')
+        await request.conversation.answer(Message(content=f'![Image]({response.url})'))
 
 
 class GptImageDialog(BaseDrawerDialog):

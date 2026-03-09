@@ -3,7 +3,7 @@ import inspect
 import typing
 import uuid
 
-from .base import AnswerBtn, BaseDialog, Discussion, Message, Request
+from .base import AnswerBtn, BaseDialog, Conversation, Message, Request
 from .prompts import PROMPTS
 
 
@@ -44,23 +44,23 @@ class SettingsDialog(BaseDialog):
         )
 
     async def handle(self, request: Request) -> None:
-        await request.discussion.answer(Message(content='Choose action'))
+        await request.conversation.answer(Message(content='Choose action'))
 
     async def handle_callback(self, request: Request) -> None:
-        await self.settings[request.callback](request.discussion)
+        await self.settings[request.callback](request.conversation)
 
     @setting(name='Check my prompt templates')
-    async def _show_templates(self, discussion: Discussion) -> None:
+    async def _show_templates(self, conversation: Conversation) -> None:
         if not PROMPTS:
-            await discussion.answer(Message(content='No prompts available'))
+            await conversation.answer(Message(content='No prompts available'))
 
         for prompt in PROMPTS:
-            await discussion.answer(
+            await conversation.answer(
                 Message(
                     content=f'**Name:**\n\n{prompt["name"]}\n\n**Text:**\n\n{prompt["text"]}\n```',
                 ),
             )
 
     @setting(name='Check my profiles')
-    async def _show_profiles(self, discussion: Discussion) -> None:
-        await discussion.answer(Message(content='222'))
+    async def _show_profiles(self, conversation: Conversation) -> None:
+        await conversation.answer(Message(content='222'))

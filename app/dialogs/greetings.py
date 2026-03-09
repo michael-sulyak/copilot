@@ -14,7 +14,7 @@ class GreetingsDialog(BaseDialog):
         )
 
     async def handle(self, request: Request) -> None:
-        await request.discussion.answer(
+        await request.conversation.answer(
             Message(
                 content='I\'m here to greet you, but I cannot perform any additional actions :(',
             ),

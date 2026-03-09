@@ -292,3 +292,27 @@ def format_tool_chat_message(
             lines.append(str(error))
 
     return '\n'.join(lines)
+
+
+def get_iter_for_background_llm_task_processing() -> typing.Generator:
+    yield 1  # Note: Usually, it takes not less than 1 second.
+
+    delay = 0.5
+    for _ in range(int(10 / delay)):
+        yield delay
+
+    delay = 1
+    for _ in range(int(60 / delay)):
+        yield delay
+
+    delay = 2
+    for _ in range(int(180 / delay)):
+        yield delay
+
+    delay = 3
+    for _ in range(int(300 / delay)):
+        yield delay
+
+    delay = 5
+    while True:
+        yield delay

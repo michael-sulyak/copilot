@@ -123,6 +123,10 @@ button,
     margin-top: 5px;
 }
 
+.chat-header .btn:active {
+    background: var(--white01);
+}
+
 .chat-header h2 {
     margin: 0;
     font-size: 2rem;
@@ -396,6 +400,10 @@ button,
     background: var(--white01);
 }
 
+.message-button:active {
+    background: var(--white025);
+}
+
 .message-buttons :last-child .message-button {
     border-bottom-left-radius: var(--box-radius-2) !important;
 }
@@ -437,6 +445,7 @@ button,
 
 .message-controllers .btn:active {
     background: transparent;
+    opacity: 0.7;
 }
 
 .message-text :last-child {

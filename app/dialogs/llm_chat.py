@@ -1,7 +1,7 @@
 import logging
 import typing
 
-from .base import BaseDialog, DialogError, Discussion, Message, Request
+from .base import BaseDialog, DialogError, Conversation, Message, Request
 from .profiles import BaseProfile
 from .tools import BaseLLMTool
 from ..memory import BaseMemory
@@ -47,7 +47,7 @@ class Dialog(BaseDialog):
                     attachments.append(attachment)
 
         if attachments:
-            await request.discussion.set_text_status('Parsing attachments...')
+            await request.conversation.set_text_status('Parsing attachments...')
 
             for attachment in attachments:
                 self.memory.add_message(LLMMessage(
@@ -60,7 +60,7 @@ class Dialog(BaseDialog):
                     ),
                 ))
 
-            await request.discussion.reset_text_status()
+            await request.conversation.reset_text_status()
 
         if base64_images and not self.model.has_vision:
             raise DialogError('The models does not support vision.')
@@ -74,10 +74,10 @@ class Dialog(BaseDialog):
         logging.info(f'Count of images: {len(base64_images)}')
         logging.info(f'Count of other attachments: {len(attachments)}')
 
-        await request.discussion.set_text_status(f'Processing via {self.model.showed_model_name}...')
-        await request.discussion.answer(await self.handle_via_llm(discussion=request.discussion))
+        await request.conversation.set_text_status(f'Processing via {self.model.showed_model_name}...')
+        await request.conversation.answer(await self.handle_via_llm(conversation=request.conversation))
 
-    async def handle_via_llm(self, *, discussion: Discussion) -> Message:
+    async def handle_via_llm(self, *, conversation: Conversation) -> Message:
         logging.info('History: %s', self.memory.get_buffer())
 
         params = {}
@@ -97,7 +97,7 @@ class Dialog(BaseDialog):
 
         try:
             response = await self._process(
-                discussion=discussion,
+                conversation=conversation,
                 model_params={
                     'messages': self.memory.get_buffer(),
                     **params,
@@ -124,7 +124,7 @@ class Dialog(BaseDialog):
     async def clear_history(self) -> None:
         self.memory.clear()
 
-    async def _process(self, *, discussion: Discussion, model_params: dict) -> LLMResponse:
+    async def _process(self, *, conversation: Conversation, model_params: dict) -> LLMResponse:
         return await self.model.process(
             **model_params,
         )

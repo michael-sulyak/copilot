@@ -1,6 +1,7 @@
 import React, {Fragment, useEffect, useRef, useState} from 'react'
 import Markdown from './Markdown'
-import {Button} from 'react-bootstrap'
+import {Button, OverlayTrigger, Tooltip} from 'react-bootstrap'
+
 
 function Message({message, addNotification: _addNotification, callButtonCallback, deleteMessage}) {
     const [copied, setCopied] = useState(false)
@@ -36,9 +37,12 @@ function Message({message, addNotification: _addNotification, callButtonCallback
 
     const controllers = (
         <div className="message-controllers">
-            <Button type="button" onClick={copyText} aria-label={copied ? 'Copied' : 'Copy'} title={copied ? 'Copied' : 'Copy'}>
-                <i className={`fa-solid ${copied ? 'fa-check' : 'fa-copy'}`} />
-            </Button>
+            <OverlayTrigger placement={message.from === 'user' ? 'left' : 'right'}
+                            overlay={<Tooltip id="tt-clear">{copied ? 'Copied' : 'Copy'}</Tooltip>}>
+                <Button type="button" onClick={copyText}>
+                    <i className={`fa-solid ${copied ? 'fa-check' : 'fa-copy'}`}/>
+                </Button>
+            </OverlayTrigger>
             {/*<Button type="button" onClick={deleteCurrentMessage}>*/}
             {/*    <i className="fa-solid fa-pen"></i>*/}
             {/*</Button>*/}
@@ -63,15 +67,15 @@ function Message({message, addNotification: _addNotification, callButtonCallback
             </div>
         )
     } else {
-        buttons = <Fragment />
+        buttons = <Fragment/>
     }
 
     return (
         <div className={`message d-flex ${message.from === 'user' ? 'user-message' : 'received-message'}`}>
-            {message.from === 'user' ? controllers : <Fragment />}
+            {message.from === 'user' ? controllers : <Fragment/>}
             <div style={{minWidth: 0}}>
                 <div className="message-text">
-                    <Markdown content={message.body.content} />
+                    <Markdown content={message.body.content}/>
                 </div>
                 {message.__ui__ && message.__ui__.attachments && (
                     <div className="file-attachments">
@@ -97,7 +101,7 @@ function Message({message, addNotification: _addNotification, callButtonCallback
                     )}
                 </div>
             </div>
-            {message.from !== 'user' ? controllers : <Fragment />}
+            {message.from !== 'user' ? controllers : <Fragment/>}
         </div>
     )
 }

@@ -9,7 +9,7 @@ from io import BytesIO
 from pydantic import BaseModel
 from telethon.tl.types import Channel
 
-from app.dialogs.base import AnswerBtn, BaseDialog, Discussion, Message, Request
+from app.dialogs.base import AnswerBtn, BaseDialog, Conversation, Message, Request
 from app.dialogs.telegram.utils import get_telegram_client, init_telegram_client
 from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMToolCall, LLMToolParam
 from app.models.openai.constants import LLMMessageRoles, LLMToolParamTypes
@@ -256,13 +256,13 @@ class TelegramContentGeneratorDialog(BaseDialog):
 
     async def handle(self, request: Request) -> None:
         topic_hint = (request.content or self._default_topic_hint).strip()
-        await self._process(discussion=request.discussion, topic_hint=topic_hint)
+        await self._process(conversation=request.conversation, topic_hint=topic_hint)
 
     async def handle_callback(self, request: Request) -> None:
         if request.callback == 'generate_random':
-            await self._process(discussion=request.discussion, topic_hint=self._default_topic_hint)
+            await self._process(conversation=request.conversation, topic_hint=self._default_topic_hint)
         elif request.callback == 'post':
-            await request.discussion.set_text_status('Posting...')
+            await request.conversation.set_text_status('Posting...')
 
             text = sanitize_html(self.draft.text)
             text = fix_telegram_html_whitespace(text)
@@ -283,16 +283,16 @@ class TelegramContentGeneratorDialog(BaseDialog):
                     parse_mode=self._html_parse_mode,
                 )
 
-            await request.discussion.reset_text_status()
-            await request.discussion.answer(Message(content='Posted!'))
+            await request.conversation.reset_text_status()
+            await request.conversation.answer(Message(content='Posted!'))
         else:
-            await request.discussion.answer(Message(content='Unknown callback type'))
+            await request.conversation.answer(Message(content='Unknown callback type'))
 
-    async def _process(self, *, discussion: Discussion, topic_hint: str) -> None:
-        await discussion.set_text_status(f'Planning post for topic "{topic_hint}"...')
+    async def _process(self, *, conversation: Conversation, topic_hint: str) -> None:
+        await conversation.set_text_status(f'Planning post for topic "{topic_hint}"...')
 
         async def _status_updater(status: str) -> None:
-            await discussion.set_text_status(status)
+            await conversation.set_text_status(status)
 
         llm_response, draft = await ContentGenerator(
             model=self._model,
@@ -300,7 +300,7 @@ class TelegramContentGeneratorDialog(BaseDialog):
             initial_prompt=self._initial_prompt,
         ).run(topic_hint=topic_hint)
 
-        await discussion.set_text_status('Composing preview...')
+        await conversation.set_text_status('Composing preview...')
 
         image_md = ''
         if draft.image:
@@ -329,14 +329,14 @@ class TelegramContentGeneratorDialog(BaseDialog):
 
         self.draft = draft
 
-        await discussion.answer(Message(
+        await conversation.answer(Message(
             content=content,
             buttons=(AnswerBtn(name='Post', callback='post'),),
             duration=llm_response.duration,
             cost=llm_response.cost,
         ))
 
-        await discussion.reset_text_status()
+        await conversation.reset_text_status()
 
     def _update_status(self, status: str) -> None:
         self.draft.status = status

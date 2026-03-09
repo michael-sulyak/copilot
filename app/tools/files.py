@@ -489,3 +489,266 @@ class CreateFolderTool(BaseLLMToolFabric):
                 f'- Requested: `{path}`\n'
                 f'- Error: `{e}`'
             )
+
+
+class ApplyDiffsTool(BaseLLMToolFabric):
+    class PatchApplyError(RuntimeError):
+        pass
+
+    _UNIFIED_HUNK_RE = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
+
+    description = FunctionLLMTool(
+        name='apply_diffs',
+        description=(
+            'Apply unified diffs (patches) to existing text files inside the provided folder.\n\n'
+            'Input format:\n'
+            '- Provide `edits` as a list of objects: `{ "path": "...", "diff": "..." }`.\n'
+            '- Each `diff` must be a *single-file* unified diff containing one or more hunks with `@@` headers.\n'
+            '- Diff headers like `diff --git`, `index`, `---`, `+++` are allowed and ignored.\n\n'
+            'Behavior:\n'
+            '- The tool reads the current file content, applies hunks with strict context matching, then overwrites the file.\n'
+            '- If the file does not exist or the patch does not apply cleanly, the tool returns an error for that item.\n'
+            '- Paths are restricted by the sandbox FileSystem (ignored/protected paths are blocked).\n'
+        ),
+        parameters=(
+            LLMToolParam(
+                name='edits',
+                type=LLMToolParamTypes.ARRAY,
+                items=LLMToolParams(
+                    parameters=(
+                        LLMToolParam(
+                            name='path',
+                            type=LLMToolParamTypes.STRING,
+                            description='Target file path relative to base folder (must already exist)',
+                            required=True,
+                        ),
+                        LLMToolParam(
+                            name='diff',
+                            type=LLMToolParamTypes.STRING,
+                            description='Unified diff for that file (must contain @@ hunk headers)',
+                            required=True,
+                        ),
+                    )
+                ),
+                description='List of patch operations: each item contains `path` and `diff`',
+                required=True,
+            ),
+            LLMToolParam(
+                name='encoding',
+                type=LLMToolParamTypes.STRING,
+                description='Text encoding for reading/writing (default: utf-8)',
+                required=False,
+            ),
+        ),
+    )
+
+    def __init__(self, work_dir: Path) -> None:
+        self.fs = FileSystem(Path(work_dir).resolve())
+
+    def _detect_eol(self, text: str) -> str:
+        return '\r\n' if '\r\n' in (text or '') else '\n'
+
+    def _apply_unified_diff_to_text(self, original: str, diff_text: str) -> str:
+        if diff_text is None:
+            raise self.PatchApplyError('Diff is empty')
+
+        diff_lines = (diff_text or '').splitlines()
+        if not diff_lines:
+            raise self.PatchApplyError('Diff is empty')
+
+        eol = self._detect_eol(original)
+        orig_lines = (original or '').splitlines()
+
+        out: list[str] = []
+        idx = 0
+
+        in_hunk = False
+        hunk_seen = False
+
+        expected_old_count: int | None = None
+        expected_new_count: int | None = None
+        seen_old = 0
+        seen_new = 0
+
+        def finish_hunk_if_any() -> None:
+            nonlocal expected_old_count, expected_new_count, seen_old, seen_new, in_hunk
+            if not in_hunk:
+                return
+
+            if expected_old_count is not None and seen_old != expected_old_count:
+                raise self.PatchApplyError(
+                    f'Hunk old-count mismatch: expected {expected_old_count}, saw {seen_old}'
+                )
+            if expected_new_count is not None and seen_new != expected_new_count:
+                raise self.PatchApplyError(
+                    f'Hunk new-count mismatch: expected {expected_new_count}, saw {seen_new}'
+                )
+
+            expected_old_count = None
+            expected_new_count = None
+            seen_old = 0
+            seen_new = 0
+            in_hunk = False
+
+        for line in diff_lines:
+            m = self._UNIFIED_HUNK_RE.match(line)
+            if m:
+                finish_hunk_if_any()
+
+                hunk_seen = True
+                in_hunk = True
+
+                old_start = int(m.group(1))
+                old_count = int(m.group(2) or '1')
+                new_count = int(m.group(4) or '1')
+
+                expected_old_count = old_count
+                expected_new_count = new_count
+                seen_old = 0
+                seen_new = 0
+
+                target = max(0, old_start - 1)
+
+                if target < idx:
+                    raise self.PatchApplyError(
+                        f'Hunk applies before current position: target={target} idx={idx}'
+                    )
+                if target > len(orig_lines):
+                    raise self.PatchApplyError(
+                        f'Hunk start beyond end of file: target={target} file_lines={len(orig_lines)}'
+                    )
+
+                out.extend(orig_lines[idx:target])
+                idx = target
+                continue
+
+            if not in_hunk:
+                if (
+                    line.startswith('diff ')
+                    or line.startswith('index ')
+                    or line.startswith('--- ')
+                    or line.startswith('+++ ')
+                ):
+                    continue
+                continue
+
+            if not line:
+                raise self.PatchApplyError('Invalid diff: empty line inside hunk')
+
+            op = line[0]
+            payload = line[1:]
+
+            if op == ' ':
+                if idx >= len(orig_lines):
+                    raise self.PatchApplyError(
+                        f'Context line beyond EOF at original index {idx}: {payload!r}'
+                    )
+                if orig_lines[idx] != payload:
+                    raise self.PatchApplyError(
+                        'Context mismatch\n'
+                        f'- At original line: {idx + 1}\n'
+                        f'- Expected: {payload!r}\n'
+                        f'- Found:    {orig_lines[idx]!r}\n'
+                    )
+                out.append(payload)
+                idx += 1
+                seen_old += 1
+                seen_new += 1
+
+            elif op == '-':
+                if idx >= len(orig_lines):
+                    raise self.PatchApplyError(
+                        f'Removal beyond EOF at original index {idx}: {payload!r}'
+                    )
+                if orig_lines[idx] != payload:
+                    raise self.PatchApplyError(
+                        'Removal mismatch\n'
+                        f'- At original line: {idx + 1}\n'
+                        f'- Expected remove: {payload!r}\n'
+                        f'- Found:           {orig_lines[idx]!r}\n'
+                    )
+                idx += 1
+                seen_old += 1
+
+            elif op == '+':
+                out.append(payload)
+                seen_new += 1
+
+            elif op == '\\':
+                continue
+
+            else:
+                raise self.PatchApplyError(f'Invalid hunk operation {op!r} in line: {line!r}')
+
+        finish_hunk_if_any()
+
+        if not hunk_seen:
+            raise self.PatchApplyError('No hunks found in diff (missing @@ -a,b +c,d @@ headers)')
+
+        out.extend(orig_lines[idx:])
+
+        had_trailing_newline = (original or '').endswith('\n') or (original or '').endswith('\r\n')
+        new_text = eol.join(out)
+        if had_trailing_newline and (new_text != '' or (original or '') != ''):
+            new_text += eol
+
+        return new_text
+
+    def run(
+        self,
+        *,
+        edits: typing.Sequence[dict],
+        encoding: str = 'utf-8',
+    ) -> str:
+        if not edits:
+            return '**ERROR:** `edits` list is empty'
+
+        results: list[str] = []
+        patched = 0
+
+        for i, spec in enumerate(edits, start=1):
+            path = (spec or {}).get('path')
+            diff = (spec or {}).get('diff')
+
+            if not path:
+                results.append(f'- Item {i}: missing `path`')
+                continue
+            if diff is None:
+                results.append(f'- `{path}`: missing `diff`')
+                continue
+            if path.endswith(('/', '\\')):
+                results.append(f'- `{path}`: looks like a folder, not a file')
+                continue
+
+            try:
+                abs_p = self.fs.resolve(path)
+                rel = self.fs.to_rel_posix(abs_p)
+                self.fs.assert_allowed(rel, is_dir=False, for_write=True)
+
+                original = self.fs.read_text(path, encoding=encoding)
+                new_text = self._apply_unified_diff_to_text(original, diff)
+
+                self.fs.write_text(path, new_text, overwrite=True, encoding=encoding)
+                size = len(new_text.encode(encoding, errors='ignore'))
+                results.append(f'- `{path}`: patched and written {size} bytes')
+                patched += 1
+
+            except FileNotFoundError:
+                results.append(f'- `{path}`: not found (file must exist)')
+            except self.PatchApplyError as e:
+                results.append(f'- `{path}`: patch failed ({e})')
+            except PermissionError as e:
+                results.append(f'- `{path}`: permission denied ({e})')
+            except ValueError as e:
+                results.append(f'- `{path}`: invalid path ({e})')
+            except OSError as e:
+                results.append(f'- `{path}`: write failed ({e})')
+            except Exception as e:
+                results.append(f'- `{path}`: unexpected error ({e})')
+
+        return (
+            'Apply diffs result:\n\n'
+            f'- Edits requested: {len(edits)}\n'
+            f'- Edits applied: {patched}\n\n'
+            + '\n'.join(results)
+        )

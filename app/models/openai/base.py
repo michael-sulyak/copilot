@@ -20,13 +20,15 @@ from openai.types.responses import (
     ResponseFormatTextJSONSchemaConfigParam,
     ResponseFunctionToolCall,
     ResponseOutputText,
-    ResponseTextConfigParam,
+    ResponseTextConfigParam, ResponseUsage,
 )
+from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from pydantic import BaseModel
 
 from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTSET
 from .utils import (
-    format_tool_chat_message, num_tokens_from_messages, prepare_llm_response_content,
+    format_tool_chat_message, get_iter_for_background_llm_task_processing, num_tokens_from_messages,
+    prepare_llm_response_content,
     process_llm_request_via_old_api,
 )
 from ... import config
@@ -338,7 +340,7 @@ class BaseLLM:
 
         count_of_tokens = cls.count_tokens(messages)
 
-        logging.info('Expected count of tokens: %s (%s%%)', count_of_tokens, round(count_of_tokens / cls.max_tokens * 100, 2))
+        logging.info('Expected count of tokens for input: %s (%s%%)', count_of_tokens, round(count_of_tokens / cls.max_tokens * 100, 2))
 
         if check_total_length and not cls.has_enough_tokens_to_answer(count_of_tokens):
             raise openai.OpenAIError('There are too few tokens left to answer.')
@@ -353,9 +355,11 @@ class BaseLLM:
             async def _check_response() -> None:
                 nonlocal response
 
+                iter_for_delay = get_iter_for_background_llm_task_processing()
+
                 while response.status in {'queued', 'in_progress'}:
                     logging.info(f'Current status of background request: "{response.status}"')
-                    await asyncio.sleep(cls.delay_for_status_checking)
+                    await asyncio.sleep(next(iter_for_delay))
                     response = await cls.config.client.responses.retrieve(response.id)
 
                 logging.info(f'Last status of background request: "{response.status}"')
@@ -364,11 +368,18 @@ class BaseLLM:
 
         logging.info('Response: %s', response)
 
-        if check_total_length and response.usage.total_tokens >= cls.max_tokens:
-            raise openai.OpenAIError('Rate limit')
+        if response.usage is None:
+            logging.warning('No usage info available.')
+            response.usage = ResponseUsage(
+                total_tokens=0,
+                input_tokens=0,
+                output_tokens=0,
+                input_tokens_details=InputTokensDetails(cached_tokens=0),
+                output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
+            )
 
         processing_time = datetime.datetime.now() - started_at
-        cost = (
+        cost = response.usage and (
             response.usage.input_tokens * cls.input_price
             + response.usage.output_tokens * cls.output_price
         )
@@ -663,6 +674,8 @@ class BaseLLM:
 
             try:
                 response = await func()
+            except openai.APITimeoutError:
+                raise
             except (openai.RateLimitError, openai.InternalServerError,) as e:
                 logging.warning(e, exc_info=True)
 
@@ -684,6 +697,11 @@ class BaseLLM:
                 logging.info('Sleep %s seconds before retrying', backoff)
                 await asyncio.sleep(backoff)
             else:
+                if isinstance(response, Response) and response.error and response.error.code == 'too_many_requests':
+                    logging.info('Server blocked the request due to too many requests.')
+                    logging.info('Sleep %s seconds before retrying', backoff)
+                    await asyncio.sleep(backoff)
+
                 break
 
         return response

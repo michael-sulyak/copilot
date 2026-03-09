@@ -11,7 +11,7 @@ from telethon.tl.functions.messages import (
 )
 
 from ...utils.common import escape_markdown
-from ..base import Discussion, Message
+from ..base import Conversation, Message
 from .utils import get_telegram_client, init_telegram_client
 
 
@@ -61,10 +61,10 @@ class TelegramMessageExtractor:
     async def init(self) -> None:
         await init_telegram_client(self._client)
 
-    async def iter_messages(self, *, discussion: Discussion) -> typing.AsyncGenerator:
+    async def iter_messages(self, *, conversation: Conversation) -> typing.AsyncGenerator:
         sources = [source async for source in self._iter_target_sources()]
 
-        await discussion.answer(Message(
+        await conversation.answer(Message(
             content=self._generate_first_message(sources=sources),
         ))
 
@@ -87,9 +87,9 @@ class TelegramMessageExtractor:
             )
 
             if i == 0:
-                await discussion.set_text_status('Reading channel...')
+                await conversation.set_text_status('Reading channel...')
             else:
-                await discussion.set_text_status(f'Reading channel... {round(i / len(sources) * 100)}%')
+                await conversation.set_text_status(f'Reading channel... {round(i / len(sources) * 100)}%')
 
             async for message in self._client.iter_messages(
                 source.dialog,
@@ -110,7 +110,7 @@ class TelegramMessageExtractor:
                 lower_text = message.text.lower()
                 for key_word in self._key_words:
                     if key_word.lower() in lower_text:
-                        await discussion.answer(Message(content=f'Found key word "{key_word}" in {post_link}'))
+                        await conversation.answer(Message(content=f'Found key word "{key_word}" in {post_link}'))
                         break
 
                 if self._is_ad(message):

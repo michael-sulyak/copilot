@@ -11,7 +11,7 @@ from aiohttp import web, web_ws
 
 from . import config
 from .desktop_defs import InputMessage, OutputMessage
-from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Discussion, Request
+from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Conversation, Request
 from .dialogs.dialog_loader import LazyDialog, load_dialogs
 from .dialogs.prompts import PROMPTS
 from .models.openai.base import Gpt4oTranscriber
@@ -19,22 +19,47 @@ from .utils.local_file_storage import LocalFileStorage, get_file_storage
 from .web.middlewares import index_middleware
 
 
+class ActiveDialog:
+    messages: dict[str, InputMessage | OutputMessage]
+    original_dialog: BaseDialog | LazyDialog
+    dialog: BaseDialog
+    conversation: Conversation
+
+    def __init__(self, *, original_dialog: BaseDialog | LazyDialog, conversation: Conversation) -> None:
+        self.messages = {}
+        self.original_dialog = original_dialog
+        self.conversation = conversation
+
+    async def init_dialog(self) -> None:
+        if isinstance(self.original_dialog, LazyDialog):
+            try:
+                self.dialog = self.original_dialog()
+            except Exception as e:
+                await self.conversation.notify(f'Failed to activate dialog:\n{e}')
+                raise
+        else:
+            self.dialog = self.original_dialog
+
+        await self.dialog.init()
+
+        if welcome_message := await self.dialog.get_welcome_message():
+            await self.conversation.answer(welcome_message)
+
+
 class DesktopApp:
     runner: web.AppRunner | None = None
     is_run: bool = True
     rpc_server: aiohttp_rpc.WSJSONRPCServer | None = None
     rpc_client: aiohttp_rpc.WSJSONRPCClient | None = None
-    active_dialog: BaseDialog | None = None
+    active_dialog: ActiveDialog | None = None
     dialogs_map: dict
     dev_mode: bool
     google_app_id: str | None
-    history: dict[str, InputMessage | OutputMessage]
     file_storage: LocalFileStorage
 
     def __init__(self, *, dev_mode: bool, google_app_id: str | None) -> None:
         self.dev_mode = dev_mode
         self.google_app_id = google_app_id
-        self.history = {}
 
     async def init(self) -> None:
         self.file_storage = get_file_storage()
@@ -148,15 +173,14 @@ class DesktopApp:
         output_obj = answer.to_output_obj()
 
         if isinstance(output_obj, OutputMessage):
-            self.history[output_obj.uuid] = output_obj
+            self.active_dialog.messages[output_obj.uuid] = output_obj
 
         await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
 
     async def clear_dialog(self) -> None:
-        self.history.clear()
-
         if self.active_dialog is not None:
-            await self.active_dialog.clear_history()
+            self.active_dialog.messages.clear()
+            await self.active_dialog.dialog.clear_history()
 
     async def get_settings(self) -> dict:
         if self.active_dialog is None:
@@ -166,8 +190,7 @@ class DesktopApp:
             'dialogs': [
                 {
                     'name': name,
-                    'is_active': self.active_dialog == dialog,
-                    'files_are_supported': None if isinstance(dialog, LazyDialog) else dialog.files_are_supported,
+                    'is_active': self.active_dialog and self.active_dialog.original_dialog == dialog,
                 }
                 for name, dialog in self.dialogs_map.items()
             ],
@@ -175,27 +198,23 @@ class DesktopApp:
         }
 
     async def get_history(self) -> list[dict]:
+        if not self.active_dialog:
+            return []
+
         return [
             item.model_dump(by_alias=True)
-            for item in self.history.values()
+            for item in self.active_dialog.messages.values()
         ]
 
     async def activate_dialog(self, dialog_name: str) -> None:
         await self.clear_dialog()
 
-        if isinstance(self.dialogs_map[dialog_name], LazyDialog):
-            try:
-                self.dialogs_map[dialog_name] = self.dialogs_map[dialog_name]()
-            except Exception as e:
-                await self.notify(f'Failed to activate dialog "{dialog_name}":\n{e}')
-                raise
+        self.active_dialog = ActiveDialog(
+            original_dialog=self.dialogs_map[dialog_name],
+            conversation=Conversation(app=self),
+        )
 
-        self.active_dialog = self.dialogs_map[dialog_name]
-
-        await self.active_dialog.init()
-
-        if welcome_message := await self.active_dialog.get_welcome_message():
-            await self.answer(welcome_message)
+        await self.active_dialog.init_dialog()
 
     def finish(self) -> None:
         logging.info('Stopping...')
@@ -207,12 +226,12 @@ class DesktopApp:
 
     async def process_message(self, message: dict) -> None:
         message = InputMessage.model_validate(message)
-        discussion = Discussion(app=self)
+        conversation = Conversation(app=self)
 
         if message.is_callback:
             request = Request(
                 callback=message.body.callback,
-                discussion=discussion,
+                conversation=conversation,
             )
         else:
             request = Request(
@@ -222,26 +241,26 @@ class DesktopApp:
                     for file_id in message.body.attachments
                     if (file := self.file_storage.get(file_id))
                 ],
-                discussion=discussion,
+                conversation=conversation,
             )
-            self.history[message.uuid] = message
+            self.active_dialog.messages[message.uuid] = message
 
         async def _process_request() -> None:
             try:
                 if message.is_callback:
-                    await self.active_dialog.handle_callback(request)
+                    await self.active_dialog.dialog.handle_callback(request)
                 else:
-                    await self.active_dialog.handle(request)
+                    await self.active_dialog.dialog.handle(request)
             except DialogError as e:
                 logging.warning(e)
-                await discussion.error(str(e))
+                await conversation.error(str(e))
             except Exception as e:
                 logging.exception('Unhandled exception')
-                await discussion.exception(e)
+                await conversation.exception(e)
             finally:
-                await discussion.finish()
+                await conversation.finish()
 
-        await discussion.start()
+        await conversation.start()
         asyncio.create_task(_process_request())
 
     async def handle_file_upload(self, request: web.Request) -> web.Response:
@@ -271,13 +290,13 @@ class DesktopApp:
     async def edit_message(self, message: dict) -> None:
         message = InputMessage.model_validate(message)
 
-        if message.uuid not in self.history:
+        if message.uuid not in self.active_dialog.messages:
             raise RuntimeError(f'Message with UUID "{message.uuid}" not found.')
 
-        self.history[message.uuid] = message
+        self.active_dialog.messages[message.uuid] = message
 
     async def delete_message(self, message_uuid: str) -> None:
-        self.history.pop(message_uuid, None)
+        self.active_dialog.messages.pop(message_uuid, None)
 
     async def process_audio(self, file_id: str) -> dict:
         audio_file = self.file_storage.get(file_id)

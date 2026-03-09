@@ -8,7 +8,7 @@ from ...models.openai.base import BaseLLM, LLMMessage, LLMResponse
 from ...models.openai.constants import LLMMessageRoles
 from ...utils.common import escape_markdown, gen_optimized_json
 from ...utils.text_processing import remove_triple_backticks
-from ..base import AnswerBtn, Discussion, Message
+from ..base import AnswerBtn, Conversation, Message
 from .message_extractor import TelegramMessageExtractor
 
 
@@ -59,9 +59,9 @@ class TelegramMessageAggregator:
             self._prompt_for_aggregation)
         ) * 0.8
 
-    async def iter_aggregated_messages(self, *, discussion: Discussion) -> typing.AsyncIterator[Message]:
+    async def iter_aggregated_messages(self, *, conversation: Conversation) -> typing.AsyncIterator[Message]:
         logging.info('Start iterating over compressed messages...')
-        messages_iter = self._iter_messages(discussion=discussion)
+        messages_iter = self._iter_messages(conversation=conversation)
         chunk, number_of_tokens, prev_group = [], 0, None
 
         async for message in messages_iter:
@@ -79,17 +79,17 @@ class TelegramMessageAggregator:
                 number_of_tokens += number_of_tokens_in_text
             else:
                 if chunk:
-                    await discussion.set_text_status(f'Processing chunk ({len(chunk)} messages)...')
+                    await conversation.set_text_status(f'Processing chunk ({len(chunk)} messages)...')
                     yield await self._process_chunk(chunk, prev_group)
 
                 chunk, number_of_tokens = [prepared_message], number_of_tokens_in_text
                 prev_group = group
 
         if chunk:
-            await discussion.set_text_status(f'Processing last chunk ({len(chunk)} messages)...')
+            await conversation.set_text_status(f'Processing last chunk ({len(chunk)} messages)...')
             yield await self._process_chunk(chunk, prev_group)
 
-    async def _iter_messages(self, *, discussion: Discussion) -> typing.AsyncIterator[dict[str, typing.Any]]:
+    async def _iter_messages(self, *, conversation: Conversation) -> typing.AsyncIterator[dict[str, typing.Any]]:
         if self._unprocessed_message_iter is not None:
             unprocessed_messages_iter = self._unprocessed_message_iter
             self._unprocessed_message_iter = None
@@ -97,7 +97,7 @@ class TelegramMessageAggregator:
             for message in unprocessed_messages_iter:
                 yield message
 
-        async for message in self._message_extractor.iter_messages(discussion=discussion):
+        async for message in self._message_extractor.iter_messages(conversation=conversation):
             yield message
 
     async def _process_chunk(self, chunk: list, group: MessageGroup) -> Message:
