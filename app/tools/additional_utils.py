@@ -1,8 +1,10 @@
 import difflib
 import re
-
 import subprocess
+import typing
 from pathlib import Path
+
+from ..utils.common import gen_optimized_json
 
 
 def fence_code(text: str, lang: str = '') -> str:
@@ -153,3 +155,16 @@ def get_changed_files(
         # raise RuntimeError(f'git diff failed: {e}') from e
 
     return tuple(line.strip() for line in output.splitlines() if line.strip())
+
+
+def gen_tool_error(*, tool: str, error_type: str, message: str, **extra: typing.Any) -> str:
+    payload: dict[str, typing.Any] = {
+        'ok': False,
+        'tool': tool,
+        'error': {
+            'type': error_type,
+            'message': message,
+        },
+        **extra,
+    }
+    return gen_optimized_json(payload)

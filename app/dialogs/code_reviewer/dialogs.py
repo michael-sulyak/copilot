@@ -1,14 +1,15 @@
 import typing
+import uuid
 from pathlib import Path
 
 from ..base import AnswerBtn, Conversation, Message, Request
 from ..llm_chat import Dialog
-from ...models.openai.base import FunctionLLMTool, LLMMessage, LLMResponse
-from ...models.openai.constants import LLMMessageRoles
-from ...models.openai.utils import format_tool_chat_message
+from ...models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse
+from ...models.openai.utils import serialize_tool_output
 from ...tools.additional_utils import get_changed_files
 from ...tools.all import TOOLS_MAP
 from ...tools.files import GitDiffTool, ReadFilesTool
+from ...utils.common import gen_optimized_json
 
 
 class CodeManager(Dialog):
@@ -98,26 +99,62 @@ class CodeManager(Dialog):
         )
 
     def _add_context(self) -> None:
-        changed_files = get_changed_files(self.selected_work_dir)
+        if not hasattr(self, 'selected_work_dir'):
+            raise ValueError('Work directory is not selected')
 
-        self.memory.add_message(LLMMessage(
-            role=LLMMessageRoles.SYSTEM,
-            content=format_tool_chat_message(
-                tool_name=GitDiffTool.description.name,
-                stage='result',
-                result=GitDiffTool(self.selected_work_dir).run(),
-                for_user=False,
+        changed_files = list(dict.fromkeys(map(str, get_changed_files(self.selected_work_dir))))
+
+        git_diff_tool = GitDiffTool(self.selected_work_dir)
+        git_diff_call_id = f'context_{uuid.uuid4().hex}'
+        git_diff_args: dict[str, typing.Any] = {}
+
+        self.memory.add_message(
+            LLMFunctionCall(
+                name=git_diff_tool.describe().name,
+                args=git_diff_args,
+                raw_args=gen_optimized_json(git_diff_args),
+                is_valid=True,
+                call_id=git_diff_call_id,
             ),
-        ))
-        self.memory.add_message(LLMMessage(
-            role=LLMMessageRoles.SYSTEM,
-            content=format_tool_chat_message(
-                tool_name=ReadFilesTool.description.name,
-                stage='result',
-                result=ReadFilesTool(self.selected_work_dir).run(paths=changed_files),
-                for_user=False,
+        )
+        self.memory.add_message(
+            LLMFunctionCallOutput(
+                call_id=git_diff_call_id,
+                output=gen_optimized_json(git_diff_tool.run()),
             ),
-        ))
+        )
+
+        readable_files: list[str] = []
+
+        for changed_file in changed_files:
+            file_path = Path(changed_file)
+            abs_path = file_path if file_path.is_absolute() else self.selected_work_dir / file_path
+
+            if abs_path.exists() and abs_path.is_file():
+                readable_files.append(changed_file)
+
+        if not readable_files:
+            return
+
+        read_files_tool = ReadFilesTool(self.selected_work_dir)
+        read_files_call_id = f'context_{uuid.uuid4().hex}'
+        read_files_args = {'paths': readable_files}
+
+        self.memory.add_message(
+            LLMFunctionCall(
+                name=read_files_tool.describe().name,
+                args=read_files_args,
+                raw_args=gen_optimized_json(read_files_args),
+                is_valid=True,
+                call_id=read_files_call_id,
+            ),
+        )
+        self.memory.add_message(
+            LLMFunctionCallOutput(
+                call_id=read_files_call_id,
+                output=serialize_tool_output(read_files_tool.run(paths=readable_files)),
+            ),
+        )
 
     def _gen_tools(self) -> tuple[FunctionLLMTool, ...]:
         return tuple(

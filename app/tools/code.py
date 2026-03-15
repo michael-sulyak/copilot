@@ -5,8 +5,9 @@ import time
 
 from app.models.openai.base import FunctionLLMTool, LLMToolParam
 from app.models.openai.constants import LLMToolParamTypes
-from .additional_utils import fence_code, trim_text
-from .files import BaseLLMToolFabric
+from .additional_utils import trim_text
+from .files import BaseLLMToolFabric, gen_tool_error
+from ..utils.common import gen_optimized_json
 
 
 class RunPythonTool(BaseLLMToolFabric):
@@ -58,6 +59,7 @@ class RunPythonTool(BaseLLMToolFabric):
             timeout = float(timeout_seconds)
         except Exception:
             timeout = 5.0
+
         if timeout <= 0:
             timeout = 5.0
 
@@ -108,39 +110,40 @@ class RunPythonTool(BaseLLMToolFabric):
                         timeout=timeout + 3.0,
                     )
                 except FileNotFoundError:
-                    return (
-                        '# Python run\n\n'
-                        '## ERROR: Docker not found\n\n'
-                        f'- Tried to run: `{self.docker_bin}`\n\n'
-                        '### Fix\n\n'
-                        '- Install Docker and ensure it is available in PATH.\n'
+                    return gen_tool_error(
+                        tool=self.description.name,
+                        error_type='DockerNotFound',
+                        message=f'Docker binary not found: {self.docker_bin}',
+                        docker_bin=self.docker_bin,
                     )
                 except subprocess.TimeoutExpired:
-                    return (
-                        '# Python run\n\n'
-                        '## ERROR: Timeout\n\n'
-                        f'- Timeout seconds: `{timeout}`\n'
+                    return gen_tool_error(
+                        tool=self.description.name,
+                        error_type='Timeout',
+                        message='Execution timed out',
+                        timeout_seconds=timeout,
                     )
 
                 elapsed = time.time() - started_at
                 stdout = trim_text(proc.stdout or '')
                 stderr = trim_text(proc.stderr or '')
 
-                return (
-                    '# Python run\n\n'
-                    f'- Image: `{self.docker_image}`\n'
-                    f'- Exit code: `{proc.returncode}`\n'
-                    f'- Timeout seconds: `{timeout}`\n'
-                    f'- Elapsed seconds: `{elapsed:.3f}`\n\n'
-                    '## Stdout\n\n'
-                    f'{fence_code(stdout)}\n\n'
-                    '## Stderr\n\n'
-                    f'{fence_code(stderr)}\n'
+                return gen_optimized_json(
+                    {
+                        'ok': proc.returncode == 0,
+                        'tool': self.description.name,
+                        'image': self.docker_image,
+                        'exit_code': proc.returncode,
+                        'timeout_seconds': timeout,
+                        'elapsed_seconds': round(elapsed, 3),
+                        'stdout': stdout,
+                        'stderr': stderr,
+                    },
                 )
 
         except Exception as e:
-            return (
-                '# Python run\n\n'
-                '## ERROR: Failed to execute\n\n'
-                f'- Error: `{e}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='ExecutionFailed',
+                message=str(e),
             )

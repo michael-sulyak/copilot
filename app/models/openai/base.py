@@ -19,7 +19,7 @@ from openai.types.responses import (
     Response,
     ResponseFormatTextJSONSchemaConfigParam,
     ResponseFunctionToolCall,
-    ResponseOutputText,
+    ResponseOutputMessage, ResponseOutputText,
     ResponseTextConfigParam, ResponseUsage,
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
@@ -29,10 +29,10 @@ from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTS
 from .utils import (
     format_tool_chat_message, get_iter_for_background_llm_task_processing, num_tokens_from_messages,
     prepare_llm_response_content,
-    process_llm_request_via_old_api,
+    process_llm_request_via_old_api, serialize_tool_output,
 )
 from ... import config
-from ...utils.common import chunk_generator
+from ...utils.common import chunk_generator, gen_optimized_json
 from ...utils.local_file_storage import File
 
 
@@ -93,7 +93,7 @@ class ApiConnectionConfig:
 class LLMResponse:
     content: str | None
     parsed_content: BaseModel | None
-    tool_calls: list['LLMToolCall']
+    tool_calls: list['LLMFunctionCall']
     duration: datetime.timedelta
     cost: float
     total_tokens: int
@@ -103,22 +103,15 @@ class LLMResponse:
         default_factory=datetime.datetime.now,
     )
 
-    def to_llm_message(self) -> 'LLMMessage':
-        if self.tool_calls:
-            return LLMMessage(
-                role=LLMMessageRoles.FUNCTION,
-                name=self.tool_calls.name,
-                content=json.dumps(self.tool_calls.args),
-            )
 
-        return LLMMessage(
-            role=LLMMessageRoles.ASSISTANT,
-            content=self.content,
-        )
+class BaseLLMMessage(abc.ABC):
+    @abc.abstractmethod
+    def dump(self) -> dict:
+        pass
 
 
 @dataclasses.dataclass(frozen=True)
-class LLMMessage:
+class LLMMessage(BaseLLMMessage):
     role: str
     content: str
     base64_images: tuple[str, ...] | None = None
@@ -169,6 +162,56 @@ class LLMMessage:
 
 
 @dataclasses.dataclass(frozen=True)
+class LLMFunctionCall(BaseLLMMessage):
+    name: str
+    args: dict[str, typing.Any] | None
+    raw_args: str | None
+    is_valid: bool
+    call_id: str | None = None
+    _cached_dump: dict = dataclasses.field(
+        default_factory=dict,
+    )
+
+    def dump(self) -> dict:
+        if 'dump' in self._cached_dump:
+            return self._cached_dump['dump']
+
+        result = {
+            'type': LLMContentTypes.FUNCTION_CALL,
+            'call_id': self.call_id,
+            'name': self.name,
+            'arguments': self.raw_args,
+        }
+
+        self._cached_dump['dump'] = result
+
+        return result
+
+
+@dataclasses.dataclass(frozen=True)
+class LLMFunctionCallOutput(BaseLLMMessage):
+    call_id: str | None = None
+    output: str | None = None
+    _cached_dump: dict = dataclasses.field(
+        default_factory=dict,
+    )
+
+    def dump(self) -> dict:
+        if 'dump' in self._cached_dump:
+            return self._cached_dump['dump']
+
+        result = {
+            'type': LLMContentTypes.FUNCTION_CALL_OUTPUT,
+            'call_id': self.call_id,
+            'output': self.output,
+        }
+
+        self._cached_dump['dump'] = result
+
+        return result
+
+
+@dataclasses.dataclass(frozen=True)
 class LLMToolParam:
     name: str
     type: str
@@ -210,14 +253,6 @@ class LLMToolParams:
         return result
 
 
-@dataclasses.dataclass(frozen=True)
-class LLMToolCall:
-    name: str
-    args: dict[str, typing.Any] | None
-    raw_args: str | None
-    is_valid: bool
-
-
 class BaseLLMTool(abc.ABC):
     name: str
 
@@ -250,7 +285,7 @@ class FunctionLLMTool(BaseLLMTool):
 @dataclasses.dataclass(frozen=True)
 class LLMRequest:
     model: str
-    messages: typing.Sequence[LLMMessage]
+    messages: typing.Sequence[BaseLLMMessage]
     temperature: float | NOTSET = NOTSET
     top_p: float | NOTSET = NOTSET
     response_format: BaseModel | NOTSET = NOTSET
@@ -314,7 +349,7 @@ class BaseLLM:
 
     @classmethod
     async def process(cls,
-                      messages: typing.Sequence[LLMMessage], *,
+                      messages: typing.Sequence[BaseLLMMessage], *,
                       temperature: float | NOTSET = NOTSET,
                       top_p: float | NOTSET = NOTSET,
                       check_total_length: bool = True,
@@ -340,16 +375,24 @@ class BaseLLM:
 
         count_of_tokens = cls.count_tokens(messages)
 
-        logging.info('Expected count of tokens for input: %s (%s%%)', count_of_tokens, round(count_of_tokens / cls.max_tokens * 100, 2))
+        logging.info(
+            'Expected count of tokens for input: %s (%s%%)',
+            count_of_tokens,
+            round(count_of_tokens / cls.max_tokens * 100, 2),
+        )
 
         if check_total_length and not cls.has_enough_tokens_to_answer(count_of_tokens):
             raise openai.OpenAIError('There are too few tokens left to answer.')
 
         if cls.use_old_api:
-            response = await cls._make_raw_request(lambda: process_llm_request_via_old_api(llm=cls, llm_request=llm_request))
+            response = await cls._make_raw_request(
+                lambda: process_llm_request_via_old_api(llm=cls, llm_request=llm_request),
+            )
             use_background_processing = False
         else:
-            response = await cls._make_raw_request(lambda: cls.config.client.responses.create(**llm_request.dump(), background=use_background_processing))
+            response = await cls._make_raw_request(
+                lambda: cls.config.client.responses.create(**llm_request.dump(), background=use_background_processing),
+            )
 
         if use_background_processing:
             async def _check_response() -> None:
@@ -387,38 +430,48 @@ class BaseLLM:
         logging.info('Processing time: %s', processing_time)
         logging.info('Cost: %s$', round(cost, 6))
 
-        llm_tool_calls = []
-        content = None
-        target_response_output = response.output[-1]
+        llm_tool_calls: list[LLMFunctionCall] = []
+        content_parts: list[str] = []
+        annotation_urls: list[str] = []
 
-        annotations = None
+        for output_item in response.output:
+            if isinstance(output_item, ResponseFunctionToolCall):
+                try:
+                    func_args = json.loads(output_item.arguments)
+                except json.JSONDecodeError as e:
+                    logging.warning(e)
+                    call_is_valid = False
+                    func_args = None
+                else:
+                    call_is_valid = True
 
-        if isinstance(target_response_output, ResponseFunctionToolCall):
-            tool_call = target_response_output
+                llm_tool_calls.append(LLMFunctionCall(
+                    name=output_item.name,
+                    args=func_args,
+                    raw_args=output_item.arguments,
+                    is_valid=call_is_valid,
+                    call_id=output_item.call_id,
+                ))
+                continue
 
-            try:
-                func_args = json.loads(tool_call.arguments)
-            except json.JSONDecodeError as e:
-                logging.warning(e)
+            if isinstance(output_item, ResponseOutputMessage):
+                for content_item in output_item.content or []:
+                    if not isinstance(content_item, ResponseOutputText):
+                        continue
 
-                call_is_valid = False
-                func_args = None
-            else:
-                call_is_valid = True
+                    if content_item.annotations:
+                        annotation_urls.extend(
+                            annotation.url
+                            for annotation in content_item.annotations
+                            if getattr(annotation, 'url', None)
+                        )
 
-            llm_tool_calls.append(LLMToolCall(
-                name=tool_call.name,
-                args=func_args,
-                raw_args=tool_call.arguments,
-                is_valid=call_is_valid,
-            ))
-        elif target_response_output.content and isinstance(target_response_output.content[0], ResponseOutputText):
-            annotations = target_response_output.content[0].annotations or None
+                    prepared_text = prepare_llm_response_content(content_item.text)
+                    if prepared_text:
+                        content_parts.append(prepared_text)
 
-            if annotations:
-                annotations = tuple(annotation.url for annotation in annotations)
-
-            content = prepare_llm_response_content(target_response_output.content[0].text)
+        content = '\n'.join(content_parts) or None
+        annotations = tuple(dict.fromkeys(annotation_urls)) or None
 
         if response_format is NOTSET:
             parsed_content = None
@@ -445,7 +498,7 @@ class BaseLLM:
     async def execute(
         cls,
         *,
-        messages: typing.Sequence[LLMMessage],
+        messages: typing.Sequence[BaseLLMMessage],
         tools: tuple[FunctionLLMTool, ...],
         temperature: float | NOTSET = NOTSET,
         top_p: float | NOTSET = NOTSET,
@@ -453,23 +506,25 @@ class BaseLLM:
         response_format: type[BaseModel] | NOTSET = NOTSET,
         max_steps: int = 8,
         check_total_length: bool = True,
-        stop_when: typing.Callable[[LLMToolCall, typing.Any], bool] | None = None,
+        stop_when: typing.Callable[[LLMFunctionCall, typing.Any], bool] | None = None,
         logger: typing.Callable | None = None,
     ) -> LLMResponse:
         """
         Runs the model-tool loop:
         - calls the model
-        - executes tool calls via `executors`
-        - feeds back function outputs
+        - executes tool calls
+        - appends native function_call_output items
         - repeats until assistant returns text or `stop_when` says to stop
-        Returns a final LLMResponse with aggregated cost/tokens and the last model message as content.
+
+        For Responses API models, this preserves reasoning items by feeding
+        `response.output` back into the next request exactly as returned.
         """
 
         started_at = datetime.datetime.now()
         total_cost = 0
         total_tokens = 0
-        tool_trace: list[LLMToolCall] = []
-        history: list[LLMMessage] = list(messages)
+        tool_trace: list[LLMFunctionCall] = []
+        history: list[typing.Any] = list(messages)
         last_raw_response: Response | None = None
         executors_map = {
             tool.name: tool.func
@@ -495,19 +550,14 @@ class BaseLLM:
             total_tokens += step_response.total_tokens
             last_raw_response = step_response.original_response
 
+            if cls.use_old_api:
+                raise RuntimeError('Old API is not supported for using tools.')
+
             if step_response.tool_calls:
+                history.extend(step_response.tool_calls)
+
                 for call in step_response.tool_calls:
                     tool_trace.append(call)
-
-                    history.append(LLMMessage(
-                        role=LLMMessageRoles.SYSTEM,
-                        content=format_tool_chat_message(
-                            tool_name=call.name,
-                            stage='call',
-                            arguments=call.raw_args,
-                            for_user=False,
-                        ),
-                    ))
 
                     if logger:
                         await logger(
@@ -519,15 +569,35 @@ class BaseLLM:
                         )
 
                     exec_fn = executors_map.get(call.name)
-                    if not call.is_valid or exec_fn is None:
-                        # Tell the model we couldn't execute so it can self-correct
-                        history.append(LLMMessage(
-                            role=LLMMessageRoles.SYSTEM,
-                            content=f'ERROR: Tool "{call.name}" unavailable or arguments invalid. raw_args={call.raw_args}',
-                        ))
-                        continue
-
                     result_value = None
+
+                    if not call.is_valid or exec_fn is None:
+                        if call.call_id is None:
+                            raise openai.OpenAIError(f'No call_id received for tool "{call.name}"')
+
+                        error_payload = {
+                            'error': f'Tool "{call.name}" unavailable or arguments invalid',
+                            'raw_args': call.raw_args,
+                        }
+
+                        history.append(
+                            LLMFunctionCallOutput(
+                                call_id=call.call_id,
+                                output=serialize_tool_output(error_payload),
+                            ),
+                        )
+
+                        if logger:
+                            await logger(
+                                format_tool_chat_message(
+                                    tool_name=call.name,
+                                    stage='error',
+                                    arguments=call.raw_args,
+                                    error='Tool unavailable or arguments invalid',
+                                ),
+                            )
+
+                        continue
 
                     try:
                         maybe_coro = exec_fn(call)
@@ -535,16 +605,15 @@ class BaseLLM:
                     except Exception:
                         logging.exception(f'Exception while executing tool "{call.name}"')
 
+                        if call.call_id is None:
+                            raise openai.OpenAIError(f'No call_id received for tool "{call.name}"')
+
                         history.append(
-                            LLMMessage(
-                                role=LLMMessageRoles.SYSTEM,
-                                content=format_tool_chat_message(
-                                    tool_name=call.name,
-                                    stage='error',
-                                    arguments=call.raw_args,
-                                    error='Unexpected exception while executing tool',
-                                    for_user=False,
-                                ),
+                            LLMFunctionCallOutput(
+                                call_id=call.call_id,
+                                output=serialize_tool_output({
+                                    'error': 'Unexpected exception while executing tool',
+                                }),
                             ),
                         )
 
@@ -558,15 +627,15 @@ class BaseLLM:
                                 ),
                             )
                     else:
-                        history.append(LLMMessage(
-                            role=LLMMessageRoles.SYSTEM,
-                            content=format_tool_chat_message(
-                                tool_name=call.name,
-                                stage='result',
-                                result=result_value,
-                                for_user=False,
+                        if call.call_id is None:
+                            raise openai.OpenAIError(f'No call_id received for tool "{call.name}"')
+
+                        history.append(
+                            LLMFunctionCallOutput(
+                                call_id=call.call_id,
+                                output=gen_optimized_json(result_value),
                             ),
-                        ))
+                        )
 
                         if logger:
                             await logger(
@@ -644,7 +713,7 @@ class BaseLLM:
         )
 
     @classmethod
-    def count_tokens(cls, messages: typing.Sequence[LLMMessage]) -> int:
+    def count_tokens(cls, messages: typing.Sequence[BaseLLMMessage]) -> int:
         return num_tokens_from_messages(
             tuple(
                 message.dump()

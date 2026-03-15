@@ -15,7 +15,8 @@ class LLMToolParamTypes:
 class LLMContentTypes:
     TEXT = 'input_text'
     IMAGE = 'input_image'
-    FUNCTION = 'function'
+    FUNCTION_CALL = 'function_call'
+    FUNCTION_CALL_OUTPUT = 'function_call_output'
 
 
 class LLMReasoningEffort:

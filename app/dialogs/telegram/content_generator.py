@@ -11,7 +11,7 @@ from telethon.tl.types import Channel
 
 from app.dialogs.base import AnswerBtn, BaseDialog, Conversation, Message, Request
 from app.dialogs.telegram.utils import get_telegram_client, init_telegram_client
-from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMToolCall, LLMToolParam
+from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMFunctionCall, LLMToolParam
 from app.models.openai.constants import LLMMessageRoles, LLMToolParamTypes
 from app.utils.common import gen_optimized_json
 from app.utils.local_file_storage import LocalFileStorage, get_file_storage
@@ -173,7 +173,7 @@ class ContentGenerator:
             ),
         ]
 
-    async def _handle_tool_call(self, tool_call: LLMToolCall) -> str:
+    async def _handle_tool_call(self, tool_call: LLMFunctionCall) -> str:
         logging.info(f'Executing {tool_call.name} with args: {tool_call.args}')
 
         if tool_call.name == 'search':

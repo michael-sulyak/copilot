@@ -1,14 +1,14 @@
 import abc
 
 from .dialogs.base import Roles
-from .models.openai.base import LLMMessage
+from .models.openai.base import BaseLLMMessage, LLMMessage
 
 
 class BaseMemory(abc.ABC):
-    def add_context(self, message: LLMMessage) -> None:
+    def add_context(self, message: BaseLLMMessage) -> None:
         pass
 
-    def add_message(self, message: LLMMessage) -> None:
+    def add_message(self, message: BaseLLMMessage) -> None:
         pass
 
     def pop_message(self) -> LLMMessage:
@@ -23,7 +23,7 @@ class BaseMemory(abc.ABC):
 
 class Memory(BaseMemory):
     _max_user_messages: int
-    _messages: list[LLMMessage]
+    _messages: list[BaseLLMMessage]
     _count_of_user_messages: int = 0
     _context: LLMMessage | None = None
 
@@ -31,25 +31,25 @@ class Memory(BaseMemory):
         self._max_user_messages = max_user_messages
         self._messages = []
 
-    def add_context(self, message: LLMMessage) -> None:
+    def add_context(self, message: BaseLLMMessage) -> None:
         self._context = message
 
-    def add_message(self, message: LLMMessage) -> None:
+    def add_message(self, message: BaseLLMMessage) -> None:
         self._messages.append(message)
 
-        if message.role == Roles.USER:
+        if isinstance(message, LLMMessage) and message.role == Roles.USER:
             self._count_of_user_messages += 1
 
             if self._count_of_user_messages > self._max_user_messages:
                 self._reduce_messages()
 
-    def pop_message(self) -> LLMMessage:
-        if self._messages[-1].role == Roles.USER:
+    def pop_message(self) -> BaseLLMMessage:
+        if isinstance(self._messages[-1], LLMMessage) and self._messages[-1].role == Roles.USER:
             self._count_of_user_messages -= 1
 
         return self._messages.pop()
 
-    def get_buffer(self) -> list[LLMMessage]:
+    def get_buffer(self) -> list[BaseLLMMessage]:
         if self._context:
             return [self._context, *self._messages]
 
@@ -63,7 +63,7 @@ class Memory(BaseMemory):
         first_message_index = None
         remove_before = None
         for i, message in enumerate(self._messages):
-            if message.role == Roles.USER:
+            if isinstance(message, LLMMessage) and message.role == Roles.USER:
                 if first_message_index is None:
                     first_message_index = i
                 else:

@@ -5,10 +5,11 @@ import subprocess
 import typing
 from pathlib import Path
 
-from .additional_utils import fence_code, suggest_similar_paths
+from .additional_utils import gen_tool_error, suggest_similar_paths
 from .file_system import FileSystem
-from ..models.openai.base import FunctionLLMTool, LLMToolCall, LLMToolParam, LLMToolParams
+from ..models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMToolParam, LLMToolParams
 from ..models.openai.constants import LLMToolParamTypes
+from ..utils.common import gen_optimized_json
 
 
 class BaseLLMToolFabric(abc.ABC):
@@ -28,22 +29,22 @@ class BaseLLMToolFabric(abc.ABC):
             for field in dataclasses.fields(self.description)
         }
 
-        def wrapper(call: LLMToolCall) -> str:
+        def wrapper(call: LLMFunctionCall) -> str:
             try:
                 return self.run(**(call.args or {}))
             except TypeError as e:
-                return (
-                    '**ERROR:** Invalid tool arguments\n\n'
-                    f'- Tool: `{self.description.name}`\n'
-                    f'- Provided args: `{call.args}`\n'
-                    f'- Error: `{e}`\n'
+                return gen_tool_error(
+                    tool=self.description.name,
+                    error_type='InvalidArguments',
+                    message=str(e),
+                    provided_args=call.args or {},
                 )
             except Exception as e:
-                return (
-                    '**ERROR:** Tool execution failed\n\n'
-                    f'- Tool: `{self.description.name}`\n'
-                    f'- Provided args: `{call.args}`\n'
-                    f'- Error: `{e}`\n'
+                return gen_tool_error(
+                    tool=self.description.name,
+                    error_type='ToolExecutionFailed',
+                    message=str(e),
+                    provided_args=call.args or {},
                 )
 
         params['func'] = wrapper
@@ -69,49 +70,107 @@ class ReadFilesTool(BaseLLMToolFabric):
         self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(self, *, paths: typing.Sequence[str]) -> str:
+        if isinstance(paths, (str, bytes)) or paths is None:
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`paths` must be an array of strings',
+                provided_paths=paths,
+            )
+
         candidates_cache: list[str] | None = None
-        parts: list[str] = ['**Read files:**\n']
+        results: list[dict[str, typing.Any]] = []
+        read_count = 0
 
         for path_str in paths:
-            parts.append('\n---\n')
-            parts.append(f'`{path_str}`\n')
-
+            item: dict[str, typing.Any] = {'path': path_str}
             try:
                 content = self.fs.read_text(path_str, encoding='utf-8')
-                parts.append(fence_code(content, lang=''))
-                continue
+                item.update(
+                    {
+                        'status': 'ok',
+                        'content': content,
+                        'bytes': len(content.encode('utf-8', errors='ignore')),
+                    },
+                )
+                read_count += 1
+
             except FileNotFoundError:
                 if candidates_cache is None:
                     # Suggest only allowed (non-ignored) files
                     candidates_cache = self.fs.list_files('.', recursive=True)
 
                 suggestions = suggest_similar_paths(path_str, candidates_cache, limit=10)
+                item.update(
+                    {
+                        'status': 'error',
+                        'error': {
+                            'type': 'FileNotFound',
+                            'message': f'File not found: {path_str}',
+                        },
+                        'suggestions': suggestions,
+                    }
+                )
 
-                parts.append('**ERROR:** File not found.\n\n')
-                parts.append(f'- Requested: `{path_str}`\n')
-                if suggestions:
-                    parts.append('\nDid you mean one of these?\n')
-                    parts.extend(f'- `{s}`\n' for s in suggestions)
-                    parts.append('\n')
-                continue
             except IsADirectoryError:
-                parts.append('**ERROR:** Path is a directory.\n\n')
-                parts.append('Tip: use `list_files` for directories.\n')
-                continue
-            except PermissionError as e:
-                parts.append('**ERROR:** Permission denied.\n\n')
-                parts.append(f'- Error: `{e}`\n')
-                continue
-            except ValueError as e:
-                parts.append('**ERROR:** Invalid path.\n\n')
-                parts.append(f'- Error: `{e}`\n')
-                continue
-            except OSError as e:
-                parts.append('**ERROR:** Failed to read file.\n\n')
-                parts.append(f'- Error: `{e}`\n')
-                continue
+                item.update(
+                    {
+                        'status': 'error',
+                        'error': {
+                            'type': 'IsDirectory',
+                            'message': 'Path is a directory. Use list_files for directories.',
+                        },
+                    }
+                )
 
-        return ''.join(parts).strip()
+            except PermissionError as e:
+                item.update(
+                    {
+                        'status': 'error',
+                        'error': {
+                            'type': 'PermissionDenied',
+                            'message': str(e),
+                        },
+                    }
+                )
+
+            except ValueError as e:
+                item.update(
+                    {
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidPath',
+                            'message': str(e),
+                        },
+                    }
+                )
+
+            except OSError as e:
+                item.update(
+                    {
+                        'status': 'error',
+                        'error': {
+                            'type': 'ReadFailed',
+                            'message': str(e),
+                        },
+                    }
+                )
+
+            results.append(item)
+
+        error_count = sum(1 for item in results if item.get('status') != 'ok')
+        return gen_optimized_json(
+            {
+                'ok': error_count == 0,
+                'tool': self.description.name,
+                'results': results,
+                'summary': {
+                    'requested': len(list(paths)),
+                    'read': read_count,
+                    'errors': error_count,
+                },
+            },
+        )
 
 
 class ListFilesTool(BaseLLMToolFabric):
@@ -141,35 +200,45 @@ class ListFilesTool(BaseLLMToolFabric):
         try:
             files = self.fs.list_files(path, recursive=bool(recursive), include_dirs=True)
         except ValueError as e:
-            return (
-                '**ERROR:** Invalid path\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidPath',
+                message=str(e),
+                path=path,
             )
         except FileNotFoundError:
-            return (
-                '**ERROR:** Path not found\n\n'
-                f'- Requested: `{path}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='PathNotFound',
+                message=f'Path not found: {path}',
+                path=path,
             )
         except NotADirectoryError:
-            return (
-                '**ERROR:** Not a directory\n\n'
-                f'- Requested: `{path}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='NotADirectory',
+                message=f'Not a directory: {path}',
+                path=path,
             )
         except OSError as e:
-            return (
-                '**ERROR:** Failed to list files\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='ListFailed',
+                message=str(e),
+                path=path,
             )
 
         rel_dir = self.fs.to_rel_posix(self.fs.resolve(path))
-
-        if not files:
-            return f'Files in `{rel_dir}/`\n\nNo files found.\n'
-
-        lines = '\n'.join(f'- `{f}`' for f in sorted(files))
-        return f'Files in `{rel_dir}/`\n\n{lines}'
+        return gen_optimized_json(
+            {
+                'ok': True,
+                'tool': self.description.name,
+                'path': rel_dir,
+                'recursive': bool(recursive),
+                'entries': sorted(files),
+                'count': len(files),
+            },
+        )
 
 
 class SearchFilesTool(BaseLLMToolFabric):
@@ -213,7 +282,11 @@ class SearchFilesTool(BaseLLMToolFabric):
         use_regex: bool = False,
     ) -> str:
         if not queries:
-            return '**ERROR:** No queries provided\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='No queries provided',
+            )
 
         # Prepare search patterns
         patterns: list[typing.Any] = []
@@ -222,10 +295,11 @@ class SearchFilesTool(BaseLLMToolFabric):
                 try:
                     patterns.append(re.compile(q))
                 except re.error as e:
-                    return (
-                        '**ERROR:** Invalid regular expression\n\n'
-                        f'- Pattern: `{q}`\n'
-                        f'- Error: `{e}`\n'
+                    return gen_tool_error(
+                        tool=self.description.name,
+                        error_type='InvalidRegex',
+                        message=str(e),
+                        pattern=q,
                     )
         else:
             patterns = list(queries)
@@ -233,29 +307,37 @@ class SearchFilesTool(BaseLLMToolFabric):
         try:
             files = self.fs.list_files(path, recursive=True)
         except ValueError as e:
-            return (
-                '**ERROR:** Invalid path\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidPath',
+                message=str(e),
+                path=path,
             )
         except FileNotFoundError:
-            return (
-                '**ERROR:** Path not found\n\n'
-                f'- Requested: `{path}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='PathNotFound',
+                message=f'Path not found: {path}',
+                path=path,
             )
         except NotADirectoryError:
-            return (
-                '**ERROR:** Not a directory\n\n'
-                f'- Requested: `{path}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='NotADirectory',
+                message=f'Not a directory: {path}',
+                path=path,
             )
         except OSError as e:
-            return (
-                '**ERROR:** Failed to search files\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`\n'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='SearchFailed',
+                message=str(e),
+                path=path,
             )
 
-        matches: list[str] = []
+        matches: list[dict[str, typing.Any]] = []
+        truncated = False
+
         for rel_file in files:
             try:
                 text = self.fs.read_text(rel_file, encoding='utf-8')
@@ -267,30 +349,37 @@ class SearchFilesTool(BaseLLMToolFabric):
                 for query, pattern in zip(queries, patterns):
                     found = pattern.search(line) if use_regex else (pattern in line)
                     if found:
-                        matches.append(f'{rel_file}:{i}: [{query}] {line.strip()}')
+                        matches.append(
+                            {
+                                'path': rel_file,
+                                'line': i,
+                                'query': query,
+                                'text': line.strip(),
+                            },
+                        )
                         break
 
                 if len(matches) >= 500:
+                    truncated = True
                     break
 
             if len(matches) >= 500:
+                truncated = True
                 break
 
         rel_dir = self.fs.to_rel_posix(self.fs.resolve(path))
-
-        if not matches:
-            return (
-                'Search results\n\n'
-                f'- Queries: `{list(queries)}`\n'
-                f'- Path: `{rel_dir}/`\n\n'
-                'No matches found.\n'
-            )
-
-        return (
-            'Search results\n\n'
-            f'- Queries: `{list(queries)}`\n'
-            f'- Path: `{rel_dir}/`\n\n'
-            + fence_code('\n'.join(matches), lang='') + '\n'
+        return gen_optimized_json(
+            {
+                'ok': True,
+                'tool': self.description.name,
+                'queries': list(queries),
+                'path': rel_dir,
+                'use_regex': bool(use_regex),
+                'matches': matches,
+                'count': len(matches),
+                'truncated': truncated,
+                'max_matches': 500,
+            },
         )
 
 
@@ -306,22 +395,37 @@ class GitDiffTool(BaseLLMToolFabric):
 
     def run(self) -> str:
         try:
-            diff = subprocess.check_output(
+            proc = subprocess.run(
                 ['git', 'diff', 'origin/master'],  # TODO: Add check that the branch updated
-                # ['git', 'diff', '--cached'],
                 cwd=self.work_dir,
+                capture_output=True,
                 text=True,
+                check=False,
             )
-        except subprocess.CalledProcessError as e:
-            return (
-                'ERROR: git diff failed\n\n'
-                f'- Error: `{e}`\n'
+        except Exception as e:
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='ExecutionFailed',
+                message=str(e),
             )
 
-        if not diff.strip():
-            return 'No diff.'
+        if proc.returncode != 0:
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='GitDiffFailed',
+                message=(proc.stderr or proc.stdout or '').strip() or f'Exit code: {proc.returncode}',
+                exit_code=proc.returncode,
+            )
 
-        return f'Git diff\n\n{fence_code(diff, lang="diff")}\n'
+        diff = proc.stdout or ''
+        return gen_optimized_json(
+            {
+                'ok': True,
+                'tool': self.description.name,
+                'has_diff': bool(diff.strip()),
+                'diff': diff,
+            },
+        )
 
 
 class EditFilesTool(BaseLLMToolFabric):
@@ -383,21 +487,64 @@ class EditFilesTool(BaseLLMToolFabric):
         encoding: str = 'utf-8',
     ) -> str:
         if not files:
-            return '**ERROR:** `files` list is empty'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`files` list is empty',
+            )
 
-        results: list[str] = []
+        if isinstance(files, (str, bytes)):
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`files` must be an array of objects',
+            )
+
+        results: list[dict[str, typing.Any]] = []
         written = 0
 
         for i, spec in enumerate(files, start=1):
+            if not isinstance(spec, dict):
+                results.append(
+                    {
+                        'index': i,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidItem',
+                            'message': 'Item must be an object with `path` and optional `content`',
+                        },
+                    },
+                )
+                continue
+
             path = spec.get('path')
             content = spec.get('content', '')
 
             if not path:
-                results.append(f'- Item {i}: missing `path`')
+                results.append(
+                    {
+                        'index': i,
+                        'status': 'error',
+                        'error': {
+                            'type': 'MissingPath',
+                            'message': 'Missing `path`',
+                        },
+                    },
+                )
                 continue
 
             if path.endswith(('/', '\\')):
-                results.append(f'- `{path}`: looks like a folder, not a file')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidPath',
+                            'message': 'Path looks like a folder, not a file',
+                        },
+                    },
+                )
                 continue
 
             try:
@@ -408,23 +555,77 @@ class EditFilesTool(BaseLLMToolFabric):
                     encoding=encoding,
                 )
                 size = len((content or '').encode(encoding, errors='ignore'))
-                results.append(f'- `{path}`: written {size} bytes')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'written',
+                        'bytes': size,
+                    },
+                )
                 written += 1
 
             except FileExistsError:
-                results.append(f'- `{path}`: already exists (overwrite=false)')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'AlreadyExists',
+                            'message': 'File already exists and overwrite is false',
+                        },
+                    },
+                )
             except PermissionError as e:
-                results.append(f'- `{path}`: permission denied ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'PermissionDenied',
+                            'message': str(e),
+                        },
+                    },
+                )
             except ValueError as e:
-                results.append(f'- `{path}`: invalid path ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidPath',
+                            'message': str(e),
+                        },
+                    },
+                )
             except OSError as e:
-                results.append(f'- `{path}`: write failed ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'WriteFailed',
+                            'message': str(e),
+                        },
+                    },
+                )
 
-        return (
-            'File creation result:\n\n'
-            f'- Files requested: {len(files)}\n'
-            f'- Files written: {written}\n\n'
-            + '\n'.join(results)
+        error_count = sum(1 for r in results if r.get('status') != 'written')
+        return gen_optimized_json(
+            {
+                'ok': error_count == 0,
+                'tool': self.description.name,
+                'summary': {
+                    'requested': len(files),
+                    'written': written,
+                    'errors': error_count,
+                },
+                'results': results,
+            },
         )
 
 
@@ -460,34 +661,41 @@ class CreateFolderTool(BaseLLMToolFabric):
     def run(self, *, path: str, parents: bool = True, exist_ok: bool = True) -> str:
         try:
             folder_path = self.fs.mkdir(path, parents=bool(parents), exist_ok=bool(exist_ok))
-            rel = self.fs.to_rel_posix(folder_path)
-            return (
-                'Folder created\n\n'
-                f'- Path: `{rel}/`'
+            rel = self.fs.to_rel_posix(folder_path).rstrip('/') + '/'
+            return gen_optimized_json(
+                {
+                    'ok': True,
+                    'tool': self.description.name,
+                    'path': rel,
+                },
             )
         except PermissionError as e:
-            return (
-                '**ERROR:** Permission denied\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='PermissionDenied',
+                message=str(e),
+                path=path,
             )
         except ValueError as e:
-            return (
-                '**ERROR:** Invalid path\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidPath',
+                message=str(e),
+                path=path,
             )
         except FileExistsError as e:
-            return (
-                '**ERROR:** Cannot create folder\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='AlreadyExists',
+                message=str(e),
+                path=path,
             )
         except OSError as e:
-            return (
-                '**ERROR:** Failed to create folder\n\n'
-                f'- Requested: `{path}`\n'
-                f'- Error: `{e}`'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='CreateFolderFailed',
+                message=str(e),
+                path=path,
             )
 
 
@@ -701,23 +909,76 @@ class ApplyDiffsTool(BaseLLMToolFabric):
         encoding: str = 'utf-8',
     ) -> str:
         if not edits:
-            return '**ERROR:** `edits` list is empty'
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`edits` list is empty',
+            )
 
-        results: list[str] = []
+        if isinstance(edits, (str, bytes)):
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`edits` must be an array of objects',
+            )
+
+        results: list[dict[str, typing.Any]] = []
         patched = 0
 
         for i, spec in enumerate(edits, start=1):
+            if not isinstance(spec, dict):
+                results.append(
+                    {
+                        'index': i,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidItem',
+                            'message': 'Item must be an object with `path` and `diff`',
+                        },
+                    },
+                )
+                continue
+
             path = (spec or {}).get('path')
             diff = (spec or {}).get('diff')
 
             if not path:
-                results.append(f'- Item {i}: missing `path`')
+                results.append(
+                    {
+                        'index': i,
+                        'status': 'error',
+                        'error': {
+                            'type': 'MissingPath',
+                            'message': 'Missing `path`',
+                        },
+                    },
+                )
                 continue
             if diff is None:
-                results.append(f'- `{path}`: missing `diff`')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'MissingDiff',
+                            'message': 'Missing `diff`',
+                        },
+                    },
+                )
                 continue
             if path.endswith(('/', '\\')):
-                results.append(f'- `{path}`: looks like a folder, not a file')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidPath',
+                            'message': 'Path looks like a folder, not a file',
+                        },
+                    },
+                )
                 continue
 
             try:
@@ -730,25 +991,99 @@ class ApplyDiffsTool(BaseLLMToolFabric):
 
                 self.fs.write_text(path, new_text, overwrite=True, encoding=encoding)
                 size = len(new_text.encode(encoding, errors='ignore'))
-                results.append(f'- `{path}`: patched and written {size} bytes')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'patched',
+                        'bytes': size,
+                    },
+                )
                 patched += 1
 
             except FileNotFoundError:
-                results.append(f'- `{path}`: not found (file must exist)')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'FileNotFound',
+                            'message': 'File must exist before patching',
+                        },
+                    },
+                )
             except self.PatchApplyError as e:
-                results.append(f'- `{path}`: patch failed ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'PatchFailed',
+                            'message': str(e),
+                        },
+                    },
+                )
             except PermissionError as e:
-                results.append(f'- `{path}`: permission denied ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'PermissionDenied',
+                            'message': str(e),
+                        },
+                    },
+                )
             except ValueError as e:
-                results.append(f'- `{path}`: invalid path ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidPath',
+                            'message': str(e),
+                        },
+                    },
+                )
             except OSError as e:
-                results.append(f'- `{path}`: write failed ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'WriteFailed',
+                            'message': str(e),
+                        },
+                    },
+                )
             except Exception as e:
-                results.append(f'- `{path}`: unexpected error ({e})')
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'UnexpectedError',
+                            'message': str(e),
+                        },
+                    },
+                )
 
-        return (
-            'Apply diffs result:\n\n'
-            f'- Edits requested: {len(edits)}\n'
-            f'- Edits applied: {patched}\n\n'
-            + '\n'.join(results)
+        error_count = sum(1 for r in results if r.get('status') != 'patched')
+        return gen_optimized_json(
+            {
+                'ok': error_count == 0,
+                'tool': self.description.name,
+                'summary': {
+                    'requested': len(edits),
+                    'patched': patched,
+                    'errors': error_count,
+                },
+                'results': results,
+            },
         )

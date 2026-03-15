@@ -19,6 +19,7 @@ from tiktoken.model import MODEL_TO_ENCODING
 from tiktoken.registry import get_encoding
 
 from ...tools.additional_utils import fence_code
+from ...utils.common import gen_optimized_json
 
 
 if typing.TYPE_CHECKING:
@@ -245,7 +246,6 @@ def format_tool_chat_message(
     arguments: str | None = None,
     result: typing.Any = None,
     error: str | None = None,
-    for_user: bool = True,
 ) -> str:
     """
     Formats a user-friendly chat message for tool execution.
@@ -275,21 +275,13 @@ def format_tool_chat_message(
 
     # Result
     if result is not None:
-        if for_user:
-            lines.append('\n📤 Result:\n\n---')
-            lines.append(str(result))
-        else:
-            lines.append('\n📤 Result (result will be after `---`):\n\n---')
-            lines.append(str(result))
+        lines.append('\n📤 Result:\n\n---')
+        lines.append(f'```\n{result}\n```')
 
     # Error
     if error is not None:
-        if for_user:
-            lines.append('\n⚠️ Error:\n\n---')
-            lines.append(str(error))
-        else:
-            lines.append('\n⚠️ Error (error will be after `---`):\n\n---')
-            lines.append(str(error))
+        lines.append('\n⚠️ Error:\n\n---')
+        lines.append(f'```\n{error}\n```')
 
     return '\n'.join(lines)
 
@@ -316,3 +308,13 @@ def get_iter_for_background_llm_task_processing() -> typing.Generator:
     delay = 5
     while True:
         yield delay
+
+
+def serialize_tool_output(value: typing.Any) -> str:
+    if value is None:
+        return 'done'
+
+    if isinstance(value, str):
+        return value
+
+    return gen_optimized_json(value)
