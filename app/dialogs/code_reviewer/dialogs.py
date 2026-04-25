@@ -1,11 +1,10 @@
 import typing
-import uuid
 from pathlib import Path
 
 from ..base import AnswerBtn, Conversation, Message, Request
 from ..llm_chat import Dialog
 from ...models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse
-from ...models.openai.utils import serialize_tool_output
+from ...models.openai.utils import gen_fake_tool_call_id, serialize_tool_output
 from ...tools.additional_utils import get_changed_files
 from ...tools.all import TOOLS_MAP
 from ...tools.files import GitDiffTool, ReadFilesTool
@@ -96,6 +95,7 @@ class CodeManager(Dialog):
             tools=self._gen_tools(),
             max_steps=100,
             logger=logger,
+            memory=self.memory,
         )
 
     def _add_context(self) -> None:
@@ -105,7 +105,7 @@ class CodeManager(Dialog):
         changed_files = list(dict.fromkeys(map(str, get_changed_files(self.selected_work_dir))))
 
         git_diff_tool = GitDiffTool(self.selected_work_dir)
-        git_diff_call_id = f'context_{uuid.uuid4().hex}'
+        git_diff_call_id = gen_fake_tool_call_id()
         git_diff_args: dict[str, typing.Any] = {}
 
         self.memory.add_message(
@@ -137,7 +137,7 @@ class CodeManager(Dialog):
             return
 
         read_files_tool = ReadFilesTool(self.selected_work_dir)
-        read_files_call_id = f'context_{uuid.uuid4().hex}'
+        read_files_call_id = gen_fake_tool_call_id()
         read_files_args = {'paths': readable_files}
 
         self.memory.add_message(

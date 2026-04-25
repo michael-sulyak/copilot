@@ -32,6 +32,7 @@ from .utils import (
     process_llm_request_via_old_api, serialize_tool_output,
 )
 from ... import config
+from ...memory import BaseMemory, Memory
 from ...utils.common import chunk_generator, gen_optimized_json
 from ...utils.local_file_storage import File
 
@@ -331,6 +332,10 @@ class LLMRequest:
         return result
 
 
+class TaskIsStuck(Exception):
+    pass
+
+
 class BaseLLM:
     showed_model_name: str
     model_name: str
@@ -398,6 +403,9 @@ class BaseLLM:
             async def _check_response() -> None:
                 nonlocal response
 
+                started_at = datetime.datetime.now()
+                wait_time_for_queued = datetime.timedelta(minutes=5)
+                wait_time_for_in_progress = datetime.timedelta(minutes=30)
                 iter_for_delay = get_iter_for_background_llm_task_processing()
 
                 while response.status in {'queued', 'in_progress'}:
@@ -405,11 +413,21 @@ class BaseLLM:
                     await asyncio.sleep(next(iter_for_delay))
                     response = await cls.config.client.responses.retrieve(response.id)
 
+                    if (
+                        (response.status == 'queued' and datetime.datetime.now() - started_at >= wait_time_for_queued)
+                        or (
+                        response.status == 'in_progress' and datetime.datetime.now() - started_at >= wait_time_for_in_progress)
+                    ):
+                        raise TaskIsStuck
+
                 logging.info(f'Last status of background request: "{response.status}"')
 
             await cls._make_raw_request(_check_response)
 
         logging.info('Response: %s', response)
+
+        if response.error:
+            raise openai.OpenAIError(response.error.message)
 
         if response.usage is None:
             logging.warning('No usage info available.')
@@ -508,6 +526,7 @@ class BaseLLM:
         check_total_length: bool = True,
         stop_when: typing.Callable[[LLMFunctionCall, typing.Any], bool] | None = None,
         logger: typing.Callable | None = None,
+        memory: BaseMemory | None = None,
     ) -> LLMResponse:
         """
         Runs the model-tool loop:
@@ -520,11 +539,14 @@ class BaseLLM:
         `response.output` back into the next request exactly as returned.
         """
 
+        if memory is None:
+            memory = Memory()
+            memory.add_messages(messages)
+
         started_at = datetime.datetime.now()
         total_cost = 0
         total_tokens = 0
         tool_trace: list[LLMFunctionCall] = []
-        history: list[typing.Any] = list(messages)
         last_raw_response: Response | None = None
         executors_map = {
             tool.name: tool.func
@@ -532,12 +554,13 @@ class BaseLLM:
         }
 
         for step in range(1, max_steps + 1):
-            current_tokens = cls.count_tokens(history)
+            buffer = memory.get_buffer()
+            current_tokens = cls.count_tokens(buffer)
             if check_total_length and not cls.has_enough_tokens_to_answer(current_tokens):
                 raise openai.OpenAIError('There are too few tokens left to answer.')
 
             step_response = await cls.process(
-                messages=tuple(history),
+                messages=buffer,
                 temperature=temperature,
                 top_p=top_p,
                 check_total_length=check_total_length,
@@ -554,7 +577,7 @@ class BaseLLM:
                 raise RuntimeError('Old API is not supported for using tools.')
 
             if step_response.tool_calls:
-                history.extend(step_response.tool_calls)
+                memory.add_messages(step_response.tool_calls)
 
                 for call in step_response.tool_calls:
                     tool_trace.append(call)
@@ -580,7 +603,7 @@ class BaseLLM:
                             'raw_args': call.raw_args,
                         }
 
-                        history.append(
+                        memory.add_message(
                             LLMFunctionCallOutput(
                                 call_id=call.call_id,
                                 output=serialize_tool_output(error_payload),
@@ -608,7 +631,7 @@ class BaseLLM:
                         if call.call_id is None:
                             raise openai.OpenAIError(f'No call_id received for tool "{call.name}"')
 
-                        history.append(
+                        memory.add_message(
                             LLMFunctionCallOutput(
                                 call_id=call.call_id,
                                 output=serialize_tool_output({
@@ -630,7 +653,7 @@ class BaseLLM:
                         if call.call_id is None:
                             raise openai.OpenAIError(f'No call_id received for tool "{call.name}"')
 
-                        history.append(
+                        memory.add_message(
                             LLMFunctionCallOutput(
                                 call_id=call.call_id,
                                 output=gen_optimized_json(result_value),
@@ -648,7 +671,7 @@ class BaseLLM:
 
                     if stop_when and stop_when(call, result_value):
                         final_turn = await cls.process(
-                            messages=tuple(history),
+                            messages=memory.get_buffer(),
                             temperature=temperature,
                             top_p=top_p,
                             check_total_length=check_total_length,
@@ -673,16 +696,16 @@ class BaseLLM:
                 continue
             else:
                 if step_response.content is None:
-                    history.append(LLMMessage(
+                    memory.add_message(LLMMessage(
                         role=LLMMessageRoles.ASSISTANT,
                         content='',
                     ))
-                    history.append(LLMMessage(
+                    memory.add_message(LLMMessage(
                         role=LLMMessageRoles.SYSTEM,
                         content='Got empty response. Process the request again',
                     ))
                 else:
-                    history.append(LLMMessage(
+                    memory.add_message(LLMMessage(
                         role=LLMMessageRoles.ASSISTANT,
                         content=step_response.content,
                     ))
@@ -745,7 +768,7 @@ class BaseLLM:
                 response = await func()
             except openai.APITimeoutError:
                 raise
-            except (openai.RateLimitError, openai.InternalServerError,) as e:
+            except (openai.RateLimitError, openai.InternalServerError, TaskIsStuck) as e:
                 logging.warning(e, exc_info=True)
 
                 if attempt >= cls.max_retries:
@@ -931,9 +954,9 @@ class BaseDrawer(abc.ABC):
 
 
 class GPTImage(BaseDrawer):
-    model_name = 'gpt-image-1.5'
+    model_name = 'gpt-image-2'
     input_price = 8 / 1_000_000
-    output_price = 32 / 1_000_000
+    output_price = 30 / 1_000_000
     max_prompt_length = 10_000
     has_vision = True
     config = DEFAULT_MODEL_CONNECTION_API_CONFIG

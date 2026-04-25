@@ -1,8 +1,11 @@
 import base64
 import logging
 import math
+import random
 import re
+import string
 import typing
+import uuid
 from io import BytesIO
 
 import tiktoken
@@ -318,3 +321,7 @@ def serialize_tool_output(value: typing.Any) -> str:
         return value
 
     return gen_optimized_json(value)
+
+def gen_fake_tool_call_id() -> str:
+    random_string = ''.join(random.choices(string.ascii_uppercase + string.digits, k=22))
+    return f'tooluse_{random_string}'

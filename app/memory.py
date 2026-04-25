@@ -1,40 +1,54 @@
 import abc
+import typing
 
 from .dialogs.base import Roles
-from .models.openai.base import BaseLLMMessage, LLMMessage
+
+if typing.TYPE_CHECKING:
+    from .models.openai.base import BaseLLMMessage, LLMMessage
 
 
 class BaseMemory(abc.ABC):
-    def add_context(self, message: BaseLLMMessage) -> None:
+    @abc.abstractmethod
+    def add_context(self, message: 'BaseLLMMessage') -> None:
         pass
 
-    def add_message(self, message: BaseLLMMessage) -> None:
+    @abc.abstractmethod
+    def add_message(self, message: 'BaseLLMMessage') -> None:
         pass
 
-    def pop_message(self) -> LLMMessage:
+    def add_messages(self, messages: typing.Iterable['BaseLLMMessage']) -> None:
+        for message in messages:
+            self.add_message(message)
+
+    @abc.abstractmethod
+    def pop_message(self) -> 'LLMMessage':
         pass
 
-    def get_buffer(self) -> list[LLMMessage]:
+    @abc.abstractmethod
+    def get_buffer(self) -> list['LLMMessage']:
         pass
 
+    @abc.abstractmethod
     def clear(self) -> None:
         pass
 
 
 class Memory(BaseMemory):
     _max_user_messages: int
-    _messages: list[BaseLLMMessage]
+    _messages: list['BaseLLMMessage']
     _count_of_user_messages: int = 0
-    _context: LLMMessage | None = None
+    _context: typing.Optional['BaseLLMMessage'] = None
 
-    def __init__(self, *, max_user_messages: int) -> None:
+    def __init__(self, *, max_user_messages: int = float('inf')) -> None:
         self._max_user_messages = max_user_messages
         self._messages = []
 
-    def add_context(self, message: BaseLLMMessage) -> None:
+    def add_context(self, message: 'BaseLLMMessage') -> None:
         self._context = message
 
-    def add_message(self, message: BaseLLMMessage) -> None:
+    def add_message(self, message: 'BaseLLMMessage') -> None:
+        from .models.openai.base import LLMMessage
+
         self._messages.append(message)
 
         if isinstance(message, LLMMessage) and message.role == Roles.USER:
@@ -43,13 +57,13 @@ class Memory(BaseMemory):
             if self._count_of_user_messages > self._max_user_messages:
                 self._reduce_messages()
 
-    def pop_message(self) -> BaseLLMMessage:
+    def pop_message(self) -> 'BaseLLMMessage':
         if isinstance(self._messages[-1], LLMMessage) and self._messages[-1].role == Roles.USER:
             self._count_of_user_messages -= 1
 
         return self._messages.pop()
 
-    def get_buffer(self) -> list[BaseLLMMessage]:
+    def get_buffer(self) -> list['BaseLLMMessage']:
         if self._context:
             return [self._context, *self._messages]
 
