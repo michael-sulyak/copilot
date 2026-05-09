@@ -590,3 +590,56 @@ blockquote {
     color: var(--primary-color);
     opacity: 0.3;
 }
+
+/* Markdown Table Styles */
+.message-text table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    overflow: hidden;
+    border-radius: var(--box-radius);
+    border: 1px solid var(--white01);
+    font-size: 0.95rem;
+}
+
+.message-text thead {
+    background: var(--white01);
+}
+
+.message-text th,
+.message-text td {
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--white01);
+    vertical-align: top;
+}
+
+.message-text th {
+    font-weight: 500;
+    color: var(--text-color);
+    text-align: left;
+}
+
+.message-text td {
+    color: var(--text-color);
+}
+
+.message-text tbody tr {
+    background: transparent;
+}
+
+.message-text tbody tr:nth-child(even) {
+    background: var(--white005);
+}
+
+.message-text tbody tr:hover {
+    background: var(--white01);
+}
+
+/* Make wide Markdown tables scroll horizontally on small screens */
+.message-text {
+    overflow-x: auto;
+}
+
+.message-text table code {
+    white-space: nowrap;
+}
