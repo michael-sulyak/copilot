@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import 'katex/dist/katex.min.css'
 import './style.css'
-import Chat from './Chat'
+import Messenger from './Messenger'
 import {Client as RpcClient} from 'rpc-websockets'
 
 function connectToServer() {
@@ -15,7 +15,7 @@ function connectToServer() {
 
         root.render(
             <React.StrictMode>
-                <Chat />
+                <Messenger />
             </React.StrictMode>
         )
 

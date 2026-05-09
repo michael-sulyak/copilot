@@ -9,7 +9,7 @@ function useChatState({
     attachedFiles,
     clearFiles,
     chatState,
-    updateChatState,
+    updateMessangerState,
     setMessages,
     processRpcError,
 }) {
@@ -51,7 +51,7 @@ function useChatState({
                 }
             } else if (message.type === 'action') {
                 if (message.name === 'set_chat_status') {
-                    await updateChatState(message.payload)
+                    await updateMessangerState(message.payload)
                 }
             }
         })
@@ -59,7 +59,7 @@ function useChatState({
         return () => {
             rpcClient.off('process_message')
         }
-    }, [setNeedToScrollChat, updateChatState, userInteractionTrigger, chatState, setMessages, setUserInteractionTrigger, processRpcError])
+    }, [setNeedToScrollChat, updateMessangerState, userInteractionTrigger, chatState, setMessages, setUserInteractionTrigger, processRpcError])
 
     useEffect(() => {
         updateTextareaHeight()
@@ -135,7 +135,7 @@ function useChatState({
     const callButtonCallback = useCallback(
         async (callbackPayload) => {
             const rpcClient = window.rpcClient
-            await updateChatState({status: 'loading'})
+            await updateMessangerState({status: 'loading'})
             const preparedMessage = {uuid: uuid.v4(), from: 'user', body: {callback: callbackPayload}}
             try {
                 const response = await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
@@ -143,9 +143,9 @@ function useChatState({
             } catch (err) {
                 addNotification('Error processing callback: ' + err)
             }
-            await updateChatState({status: 'idle'})
+            await updateMessangerState({status: 'idle'})
         },
-        [processRpcError, setMessages, updateChatState, addNotification]
+        [processRpcError, setMessages, updateMessangerState, addNotification]
     )
 
     useEffect(() => {
@@ -178,7 +178,7 @@ function useChatState({
         inputValue,
         setInputValue,
         chatState,
-        updateChatState,
+        updateMessangerState,
         sendMessage,
         deleteMessage,
         callButtonCallback,

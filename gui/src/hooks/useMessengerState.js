@@ -1,7 +1,7 @@
 import {useCallback, useState} from 'react'
 import {getTimestampNs} from '../utils'
 
-function useChatState() {
+function useMessengerState() {
     const [chatState, setChatState] = useState({
         status: 'idle',
         text: null,
@@ -9,7 +9,7 @@ function useChatState() {
         timestamp: 0,
     })
 
-    const updateChatState = useCallback(
+    const updateMessangerState = useCallback(
         async ({text, status, timestamp}) => {
             setChatState((prev) => {
                 const newTimestamp = timestamp === undefined ? getTimestampNs() : timestamp
@@ -29,8 +29,8 @@ function useChatState() {
 
     return {
         chatState,
-        updateChatState,
+        updateMessangerState,
     }
 }
 
-export default useChatState
+export default useMessengerState

@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 import typing
@@ -9,9 +8,10 @@ from io import BytesIO
 from pydantic import BaseModel
 from telethon.tl.types import Channel
 
-from app.dialogs.base import AnswerBtn, BaseDialog, Conversation, Message, Request
-from app.dialogs.telegram.utils import get_telegram_client, init_telegram_client
-from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMFunctionCall, LLMToolParam
+from app.chats.base import AnswerBtn, BaseChat, Conversation, Message, Request
+from app.chats.telegram.utils import get_telegram_client, init_telegram_client
+from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMFunctionCall, \
+    LLMToolParam
 from app.models.openai.constants import LLMMessageRoles, LLMToolParamTypes
 from app.utils.common import gen_optimized_json
 from app.utils.local_file_storage import LocalFileStorage, get_file_storage
@@ -68,11 +68,11 @@ class ContentGenerator:
     initial_prompt: str
 
     def __init__(
-        self,
-        *,
-        model: BaseLLM,
-        status_updater: typing.Callable,
-        initial_prompt: str,
+            self,
+            *,
+            model: BaseLLM,
+            status_updater: typing.Callable,
+            initial_prompt: str,
     ) -> None:
         self.model = model
         self.status_updater = status_updater
@@ -223,7 +223,7 @@ class ContentGenerator:
         return llm_response, self._draft
 
 
-class TelegramContentGeneratorDialog(BaseDialog):
+class TelegramContentGeneratorChat(BaseChat):
     _default_topic_hint = 'Use random topic to generate the content. If you see any tool that can may affect randomness, then use it.'
     _html_parse_mode: str = 'html'
     _channel_name: str

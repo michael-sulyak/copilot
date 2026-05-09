@@ -1,6 +1,6 @@
 import {useCallback, useEffect} from 'react'
 
-function useDialog({updateChatState, setMessages, clearFiles, getSettings, processRpcError}) {
+function useChat({updateMessangerState, setMessages, clearFiles, getSettings, processRpcError}) {
     const getHistory = useCallback(async () => {
         const rpcClient = window.rpcClient
         const history = await rpcClient.call('get_history', []).catch(processRpcError)
@@ -9,31 +9,31 @@ function useDialog({updateChatState, setMessages, clearFiles, getSettings, proce
         setMessages(history)
     }, [setMessages, processRpcError])
 
-    const activateDialog = useCallback(
-        async (dialogName) => {
+    const activateChat = useCallback(
+        async (chatName) => {
             const rpcClient = window.rpcClient
-            await updateChatState({status: 'loading', text: null})
+            await updateMessangerState({status: 'loading', text: null})
             await setMessages([])
             await clearFiles()
-            await rpcClient.call('activate_dialog', [dialogName]).catch(processRpcError)
+            await rpcClient.call('open_chat', [chatName]).catch(processRpcError)
             await getSettings()
-            await updateChatState({status: 'idle', text: null})
+            await updateMessangerState({status: 'idle', text: null})
         },
-        [updateChatState, setMessages, getSettings, clearFiles, processRpcError]
+        [updateMessangerState, setMessages, getSettings, clearFiles, processRpcError]
     )
 
-    const clearDialog = useCallback(async () => {
+    const clearChat = useCallback(async () => {
         const rpcClient = window.rpcClient
         await setMessages([])
         await clearFiles()
-        await rpcClient.call('clear_dialog', [])
+        await rpcClient.call('clear_chat', [])
     }, [setMessages, clearFiles])
 
     useEffect(() => {
         getHistory()
     }, [getHistory])
 
-    return {activateDialog, clearDialog}
+    return {activateChat, clearChat}
 }
 
-export default useDialog
+export default useChat

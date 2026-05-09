@@ -69,7 +69,7 @@ UPLOADS_DIR = get_config_value('uploads_dir', '/tmp')
 SHOWED_UPLOADS_DIR = get_config_value('showed_uploads_dir', '/uploads')
 PROFILES_DIR = os.path.join(CONFIGS_DIR, 'profiles')
 PROMPTS_DIR = os.path.join(CONFIGS_DIR, 'prompts')
-DIALOGS_PATH = os.path.join(CONFIGS_DIR, 'dialogs.yaml')
+CHATS_PATH = os.path.join(CONFIGS_DIR, 'chats.yaml')
 MODELS_PATH = os.path.join(CONFIGS_DIR, 'models.yaml')
 CLEAN_RESPONSES = get_config_value('clean_responses')
 

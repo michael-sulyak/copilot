@@ -3,12 +3,12 @@ import typing
 
 from .message_aggregator import MessageGroup, TelegramMessageAggregator
 from .message_extractor import TelegramMessageExtractor
-from ..base import AnswerBtn, BaseDialog, Message, Request
+from ..base import AnswerBtn, BaseChat, Message, Request
 from ...models.openai.base import BaseLLM
 from ...utils.common import escape_markdown
 
 
-class TelegramMessageDialog(BaseDialog):
+class TelegramMessageChat(BaseChat):
     _message_aggregator: TelegramMessageAggregator
 
     def __init__(self, *, message_aggregator: TelegramMessageAggregator) -> None:
@@ -58,11 +58,11 @@ def gen_telegram_folder_reader(
     prompt_for_aggregation: str,
     topics_to_exclude: typing.Sequence[str] = (),
     important_key_words: typing.Sequence[str] = (),
-) -> BaseDialog:
+) -> BaseChat:
     topics_to_exclude = set(topics_to_exclude)
     important_key_words = tuple(important_key_words)
 
-    return TelegramMessageDialog(
+    return TelegramMessageChat(
         message_aggregator=TelegramMessageAggregator(
             llm_model=gpt_model,
             model_params=model_params,

@@ -1,7 +1,7 @@
 import logging
 import typing
 
-from .base import BaseDialog, DialogError, Conversation, Message, Request
+from .base import BaseChat, ChatError, Conversation, Message, Request
 from .profiles import BaseProfile
 from .tools import BaseLLMTool
 from ..memory import BaseMemory
@@ -10,7 +10,7 @@ from ..models.openai.constants import LLMMessageRoles, NOTSET
 from ..utils.file_processor import FileProcessor
 
 
-class Dialog(BaseDialog):
+class Chat(BaseChat):
     profile: BaseProfile
     memory: BaseMemory
     model: BaseLLM
@@ -63,7 +63,7 @@ class Dialog(BaseDialog):
             await request.conversation.reset_text_status()
 
         if base64_images and not self.model.has_vision:
-            raise DialogError('The models does not support vision.')
+            raise ChatError('The models does not support vision.')
 
         self.memory.add_message(LLMMessage(
             role=LLMMessageRoles.USER,
@@ -105,7 +105,7 @@ class Dialog(BaseDialog):
             )
         except Exception as e:
             logging.exception(e)
-            raise DialogError(str(e)) from e
+            raise ChatError(str(e)) from e
 
         content = response.content
 

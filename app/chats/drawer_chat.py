@@ -4,10 +4,10 @@ from io import BytesIO
 
 from ..models.openai.base import BaseDrawer, GPTImage
 from ..utils.local_file_storage import LocalFileStorage, get_file_storage
-from .base import BaseDialog, DialogError, Message, Request
+from .base import BaseChat, ChatError, Message, Request
 
 
-class BaseDrawerDialog(BaseDialog, abc.ABC):
+class BaseDrawerChat(BaseChat, abc.ABC):
     model: type[BaseDrawer]
     file_storage: LocalFileStorage
 
@@ -30,7 +30,7 @@ class BaseDrawerDialog(BaseDialog, abc.ABC):
                     logging.info(f'Image attachment: {attachment.name} ({attachment.mime_type})')
                     images.append(attachment)
                 else:
-                    raise DialogError(f'File "{attachment.name}" is not an image.')
+                    raise ChatError(f'File "{attachment.name}" is not an image.')
 
         try:
             if images:
@@ -41,7 +41,7 @@ class BaseDrawerDialog(BaseDialog, abc.ABC):
                 response = await self.model.create(request.content)
         except Exception as e:
             logging.exception(e)
-            raise DialogError(str(e)) from e
+            raise ChatError(str(e)) from e
 
         if response.url is None:
             response.url = (await self.file_storage.save_file(file_name='image.png', buffer=BytesIO(response.data))).url
@@ -50,5 +50,5 @@ class BaseDrawerDialog(BaseDialog, abc.ABC):
         await request.conversation.answer(Message(content=f'![Image]({response.url})'))
 
 
-class GptImageDialog(BaseDrawerDialog):
+class GptImageChat(BaseDrawerChat):
     model = GPTImage

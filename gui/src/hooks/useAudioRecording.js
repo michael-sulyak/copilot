@@ -1,7 +1,7 @@
 import {useCallback, useRef, useState} from 'react'
 import {getTimestampNs} from '../utils'
 
-function useAudioRecording({addNotification, inputValue, setInputValue, uploadFiles, updateChatState, processRpcError}) {
+function useAudioRecording({addNotification, inputValue, setInputValue, uploadFiles, updateMessangerState, processRpcError}) {
     const [recordingState, setRecordingState] = useState({status: 'off'})
     const mediaRecorderRef = useRef(null)
 
@@ -38,18 +38,18 @@ function useAudioRecording({addNotification, inputValue, setInputValue, uploadFi
 
             await uploadFiles({
                 files: [audioFile],
-                updateChatStateText: false,
+                updateMessangerStateText: false,
                 callback: async (response) => {
                     const rpcClient = window.rpcClient
 
                     const parsedResponse = JSON.parse(response)
                     const uploadedFiles = parsedResponse.files
 
-                    await updateChatState({text: 'Processing audio...', timestamp: getTimestampNs()})
+                    await updateMessangerState({text: 'Processing audio...', timestamp: getTimestampNs()})
                     const result = await rpcClient.call('process_audio', [uploadedFiles[0].id]).catch(processRpcError)
 
                     setRecordingState({status: 'off'})
-                    await updateChatState({text: null, timestamp: getTimestampNs()})
+                    await updateMessangerState({text: null, timestamp: getTimestampNs()})
 
                     if (result.error) {
                         await addNotification(result.error)
@@ -61,7 +61,7 @@ function useAudioRecording({addNotification, inputValue, setInputValue, uploadFi
         }
 
         mediaRecorder.start()
-    }, [processRpcError, inputValue, updateChatState, recordingState, addNotification, setInputValue, uploadFiles])
+    }, [processRpcError, inputValue, updateMessangerState, recordingState, addNotification, setInputValue, uploadFiles])
 
     const stopRecording = useCallback(async () => {
         if (mediaRecorderRef.current && recordingState.status === 'on') {

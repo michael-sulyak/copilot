@@ -75,7 +75,7 @@ class TelegramMessageExtractor:
         )
 
         for i, source in enumerate(sources):
-            channel_title = source.dialog.title
+            channel_title = source.chat.title
             channel_topic = source.topic.title if source.topic else None
 
             prepared_messages = []
@@ -92,7 +92,7 @@ class TelegramMessageExtractor:
                 await conversation.set_text_status(f'Reading channel... {round(i / len(sources) * 100)}%')
 
             async for message in self._client.iter_messages(
-                source.dialog,
+                source.chat,
                 reply_to=source.filter_for_reply_to,
                 limit=source.unread_count,
             ):
@@ -139,12 +139,12 @@ class TelegramMessageExtractor:
                     logging.info(f'Skip "{post_link}", because the filtering ({prepared_message}).')
 
             if read_dialog_messages:
-                await self._mark_as_read(source.dialog, read_dialog_messages)
+                await self._mark_as_read(source.chat, read_dialog_messages)
 
                 if source.topic:
                     for message in read_dialog_messages:
                         await self._client(ReadDiscussionRequest(
-                            source.dialog,
+                            source.chat,
                             msg_id=source.topic.id,
                             read_max_id=message.id,  # Note: It doesn't want to read all messages using last msg id.
                         ))

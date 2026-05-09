@@ -2,7 +2,7 @@ import typing
 from pathlib import Path
 
 from ..base import AnswerBtn, Conversation, Message, Request
-from ..llm_chat import Dialog
+from ..llm_chat import Chat
 from ...models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse
 from ...models.openai.utils import gen_fake_tool_call_id, serialize_tool_output
 from ...tools.additional_utils import get_changed_files
@@ -11,7 +11,7 @@ from ...tools.files import GitDiffTool, ReadFilesTool
 from ...utils.common import gen_optimized_json
 
 
-class CodeManager(Dialog):
+class CodeManager(Chat):
     selected_work_dir: Path
     work_dirs: typing.Sequence[str]
     original_tool_names: list[str]

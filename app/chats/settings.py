@@ -3,7 +3,7 @@ import inspect
 import typing
 import uuid
 
-from .base import AnswerBtn, BaseDialog, Conversation, Message, Request
+from .base import AnswerBtn, BaseChat, Conversation, Message, Request
 from .prompts import PROMPTS
 
 
@@ -22,7 +22,7 @@ def setting(*, name: str) -> typing.Callable:
     return decorate
 
 
-class SettingsDialog(BaseDialog):
+class SettingsChat(BaseChat):
     settings: dict
 
     def __init__(self, *args, **kwargs) -> None:

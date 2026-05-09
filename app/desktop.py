@@ -11,38 +11,38 @@ from aiohttp import web, web_ws
 
 from . import config
 from .desktop_defs import InputMessage, OutputMessage
-from .dialogs.base import BaseAnswer, BaseDialog, DialogError, Conversation, Request
-from .dialogs.dialog_loader import LazyDialog, load_dialogs
-from .dialogs.prompts import PROMPTS
+from .chats.base import BaseAnswer, BaseChat, ChatError, Conversation, Request
+from .chats.chat_loader import LazyChat, load_chats
+from .chats.prompts import PROMPTS
 from .models.openai.base import Gpt4oTranscriber
 from .utils.local_file_storage import LocalFileStorage, get_file_storage
 from .web.middlewares import index_middleware
 
 
-class ActiveDialog:
+class ActiveChat:
     messages: dict[str, InputMessage | OutputMessage]
-    original_dialog: BaseDialog | LazyDialog
-    dialog: BaseDialog
+    original_chat: BaseChat | LazyChat
+    chat: BaseChat
     conversation: Conversation
 
-    def __init__(self, *, original_dialog: BaseDialog | LazyDialog, conversation: Conversation) -> None:
+    def __init__(self, *, original_chat: BaseChat | LazyChat, conversation: Conversation) -> None:
         self.messages = {}
-        self.original_dialog = original_dialog
+        self.original_chat = original_chat
         self.conversation = conversation
 
-    async def init_dialog(self) -> None:
-        if isinstance(self.original_dialog, LazyDialog):
+    async def init_chat(self) -> None:
+        if isinstance(self.original_chat, LazyChat):
             try:
-                self.dialog = self.original_dialog()
+                self.chat = self.original_chat()
             except Exception as e:
-                await self.conversation.notify(f'Failed to activate dialog:\n{e}')
+                await self.conversation.notify(f'Failed to activate chat:\n{e}')
                 raise
         else:
-            self.dialog = self.original_dialog
+            self.chat = self.original_chat
 
-        await self.dialog.init()
+        await self.chat.init()
 
-        if welcome_message := await self.dialog.get_welcome_message():
+        if welcome_message := await self.chat.get_welcome_message():
             await self.conversation.answer(welcome_message)
 
 
@@ -51,8 +51,8 @@ class DesktopApp:
     is_run: bool = True
     rpc_server: aiohttp_rpc.WSJSONRPCServer | None = None
     rpc_client: aiohttp_rpc.WSJSONRPCClient | None = None
-    active_dialog: ActiveDialog | None = None
-    dialogs_map: dict
+    active_chat: ActiveChat | None = None
+    chats_map: dict
     dev_mode: bool
     google_app_id: str | None
     file_storage: LocalFileStorage
@@ -63,7 +63,7 @@ class DesktopApp:
 
     async def init(self) -> None:
         self.file_storage = get_file_storage()
-        self.dialogs_map = load_dialogs(config.DIALOGS_PATH)
+        self.chats_map = load_chats(config.CHATS_PATH)
 
     async def start(self) -> None:
         logging.info('Staring...')
@@ -87,8 +87,8 @@ class DesktopApp:
             aiohttp_rpc.JSONRPCMethod(self.finish, name='finish'),
             aiohttp_rpc.JSONRPCMethod(self.get_history, name='get_history'),
             aiohttp_rpc.JSONRPCMethod(self.get_settings, name='get_settings'),
-            aiohttp_rpc.JSONRPCMethod(self.activate_dialog, name='activate_dialog'),
-            aiohttp_rpc.JSONRPCMethod(self.clear_dialog, name='clear_dialog'),
+            aiohttp_rpc.JSONRPCMethod(self.open_chat, name='open_chat'),
+            aiohttp_rpc.JSONRPCMethod(self.clear_chat, name='clear_chat'),
             aiohttp_rpc.JSONRPCMethod(self.process_audio, name='process_audio'),
             aiohttp_rpc.JSONRPCMethod(self.delete_message, name='delete_message'),
         ))
@@ -173,48 +173,48 @@ class DesktopApp:
         output_obj = answer.to_output_obj()
 
         if isinstance(output_obj, OutputMessage):
-            self.active_dialog.messages[output_obj.uuid] = output_obj
+            self.active_chat.messages[output_obj.uuid] = output_obj
 
         await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
 
-    async def clear_dialog(self) -> None:
-        if self.active_dialog is not None:
-            self.active_dialog.messages.clear()
-            await self.active_dialog.dialog.clear_history()
+    async def clear_chat(self) -> None:
+        if self.active_chat is not None:
+            self.active_chat.messages.clear()
+            await self.active_chat.chat.clear_history()
 
     async def get_settings(self) -> dict:
-        if self.active_dialog is None:
-            await self.activate_dialog(next(iter(self.dialogs_map.keys())))
+        if self.active_chat is None:
+            await self.open_chat(next(iter(self.chats_map.keys())))
 
         return {
-            'dialogs': [
+            'chats': [
                 {
                     'name': name,
-                    'is_active': self.active_dialog and self.active_dialog.original_dialog == dialog,
+                    'is_active': self.active_chat and self.active_chat.original_chat == chat,
                 }
-                for name, dialog in self.dialogs_map.items()
+                for name, chat in self.chats_map.items()
             ],
             'prompts': PROMPTS,
         }
 
     async def get_history(self) -> list[dict]:
-        if not self.active_dialog:
+        if not self.active_chat:
             return []
 
         return [
             item.model_dump(by_alias=True)
-            for item in self.active_dialog.messages.values()
+            for item in self.active_chat.messages.values()
         ]
 
-    async def activate_dialog(self, dialog_name: str) -> None:
-        await self.clear_dialog()
+    async def open_chat(self, chat_name: str) -> None:
+        await self.clear_chat()
 
-        self.active_dialog = ActiveDialog(
-            original_dialog=self.dialogs_map[dialog_name],
+        self.active_chat = ActiveChat(
+            original_chat=self.chats_map[chat_name],
             conversation=Conversation(app=self),
         )
 
-        await self.active_dialog.init_dialog()
+        await self.active_chat.init_chat()
 
     def finish(self) -> None:
         logging.info('Stopping...')
@@ -243,15 +243,15 @@ class DesktopApp:
                 ],
                 conversation=conversation,
             )
-            self.active_dialog.messages[message.uuid] = message
+            self.active_chat.messages[message.uuid] = message
 
         async def _process_request() -> None:
             try:
                 if message.is_callback:
-                    await self.active_dialog.dialog.handle_callback(request)
+                    await self.active_chat.chat.handle_callback(request)
                 else:
-                    await self.active_dialog.dialog.handle(request)
-            except DialogError as e:
+                    await self.active_chat.chat.handle(request)
+            except ChatError as e:
                 logging.warning(e)
                 await conversation.error(str(e))
             except Exception as e:
@@ -290,13 +290,13 @@ class DesktopApp:
     async def edit_message(self, message: dict) -> None:
         message = InputMessage.model_validate(message)
 
-        if message.uuid not in self.active_dialog.messages:
+        if message.uuid not in self.active_chat.messages:
             raise RuntimeError(f'Message with UUID "{message.uuid}" not found.')
 
-        self.active_dialog.messages[message.uuid] = message
+        self.active_chat.messages[message.uuid] = message
 
     async def delete_message(self, message_uuid: str) -> None:
-        self.active_dialog.messages.pop(message_uuid, None)
+        self.active_chat.messages.pop(message_uuid, None)
 
     async def process_audio(self, file_id: str) -> dict:
         audio_file = self.file_storage.get(file_id)

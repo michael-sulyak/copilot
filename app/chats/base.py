@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:
     from ..desktop import DesktopApp
 
 
-class DialogError(Exception):
+class ChatError(Exception):
     pass
 
 
@@ -99,7 +99,7 @@ class Action(BaseAnswer):
 
 class Conversation:
     """
-    A communication bridge between a dialog and the DesktopApp, providing
+    A communication bridge between a chat and the DesktopApp, providing
     methods to send messages, update chat status, and report errors to the UI.
     """
 
@@ -143,9 +143,9 @@ class Request:
     attachments: list[File] | None = None
 
 
-class BaseDialog:
+class BaseChat:
     """
-    Abstract base class defining the lifecycle and behavior of a chat dialog,
+    Abstract base class defining the lifecycle and behavior of a chat,
     including message handling, callbacks, initialization, and cleanup.
     """
 

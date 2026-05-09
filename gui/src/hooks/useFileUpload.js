@@ -3,7 +3,7 @@ import {getTimestampNs, isImage} from '../utils'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
 
-function useFileUpload({addNotification, updateChatState}) {
+function useFileUpload({addNotification, updateMessangerState}) {
     const [attachedFiles, setAttachedFiles] = useState([])
 
     const clearFiles = useCallback(() => {
@@ -14,7 +14,7 @@ function useFileUpload({addNotification, updateChatState}) {
     }, [attachedFiles])
 
     const uploadFiles = useCallback(
-        async ({files, updateChatStateText = true, callback}) => {
+        async ({files, updateMessangerStateText = true, callback}) => {
             const formData = new FormData()
             files.forEach((file) => {
                 formData.append('files', file)
@@ -23,13 +23,13 @@ function useFileUpload({addNotification, updateChatState}) {
             const xhr = new XMLHttpRequest()
             xhr.open('POST', 'http://localhost:20770/upload-file', true)
 
-            if (updateChatStateText) {
+            if (updateMessangerStateText) {
                 xhr.upload.onprogress = async (event) => {
                     if (event.lengthComputable) {
                         const percentComplete = Math.round((event.loaded / event.total) * 100)
 
                         if (percentComplete !== 100) {
-                            await updateChatState({text: `File uploading... (${percentComplete}%)`})
+                            await updateMessangerState({text: `File uploading... (${percentComplete}%)`})
                         }
                     }
                 }
@@ -38,15 +38,15 @@ function useFileUpload({addNotification, updateChatState}) {
             xhr.onload = async () => {
                 const timestamp = getTimestampNs()
 
-                if (updateChatStateText) {
+                if (updateMessangerStateText) {
                     if (xhr.status === 200) {
-                        await updateChatState({text: 'Files uploaded successfully', timestamp})
+                        await updateMessangerState({text: 'Files uploaded successfully', timestamp})
                     } else {
-                        await updateChatState({text: 'Failed to upload files', timestamp})
+                        await updateMessangerState({text: 'Failed to upload files', timestamp})
                     }
 
                     setTimeout(() => {
-                        updateChatState({text: null, timestamp: timestamp + 1})
+                        updateMessangerState({text: null, timestamp: timestamp + 1})
                     }, 2000)
                 } else if (xhr.status !== 200) {
                     await addNotification('Failed to upload files')
@@ -62,7 +62,7 @@ function useFileUpload({addNotification, updateChatState}) {
             }
             xhr.send(formData)
         },
-        [addNotification, updateChatState]
+        [addNotification, updateMessangerState]
     )
 
     const onFileUpload = async (e) => {

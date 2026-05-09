@@ -1,8 +1,8 @@
 import React, {useMemo} from 'react'
 import {Button, Card, Dropdown, OverlayTrigger, Tooltip} from 'react-bootstrap'
 
-function Header({settings, activateDialog, clearDialog, insertText}) {
-    const activeDialogName = useMemo(() => settings?.dialogs?.find((d) => d.is_active)?.name ?? 'Default', [settings?.dialogs])
+function Header({settings, activateChat, clearChat, insertText}) {
+    const activeChatName = useMemo(() => settings?.chats?.find((d) => d.is_active)?.name ?? 'Default', [settings?.chats])
 
     return (
         <Card.Header className="chat-header rounded-0">
@@ -12,7 +12,7 @@ function Header({settings, activateDialog, clearDialog, insertText}) {
 
             <div className="actions d-flex align-items-center justify-content-end gap-2">
                 <OverlayTrigger placement="bottom" overlay={<Tooltip id="tt-clear">Clear conversation</Tooltip>}>
-                    <Button variant="outline-primary" onClick={clearDialog} aria-label="Clear conversation">
+                    <Button variant="outline-primary" onClick={clearChat} aria-label="Clear conversation">
                         <i className="fa-solid fa-eraser" aria-hidden="true"></i>
                     </Button>
                 </OverlayTrigger>
@@ -31,17 +31,17 @@ function Header({settings, activateDialog, clearDialog, insertText}) {
                 </Dropdown>
 
                 <Dropdown align="end">
-                    <Dropdown.Toggle variant="outline-primary" className="text-truncate" title={activeDialogName}>
-                        {activeDialogName}
+                    <Dropdown.Toggle variant="outline-primary" className="text-truncate" title={activeChatName}>
+                        {activeChatName}
                     </Dropdown.Toggle>
                     <Dropdown.Menu>
-                        {settings.dialogs?.map((dialog) => (
+                        {settings.chats?.map((chat) => (
                             <Dropdown.Item
-                                key={dialog.name}
-                                active={dialog.is_active}
-                                onClick={() => !dialog.is_active && activateDialog(dialog.name)}
+                                key={chat.name}
+                                active={chat.is_active}
+                                onClick={() => !chat.is_active && activateChat(chat.name)}
                             >
-                                {dialog.name}
+                                {chat.name}
                             </Dropdown.Item>
                         ))}
                     </Dropdown.Menu>

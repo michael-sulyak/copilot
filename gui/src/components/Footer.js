@@ -81,7 +81,7 @@ function Footer({
     inputValue,
     textareaRef,
     isLoading,
-    activeDialog,
+    activeChat,
     onFileUpload,
     fileInputRef,
     attachedFiles,
@@ -181,7 +181,7 @@ function Footer({
                 >
                     <i className="fa-solid fa-microphone"></i>
                 </Button>
-                {activeDialog && activeDialog.files_are_supported ? (
+                {activeChat && activeChat.files_are_supported ? (
                     <Fragment>
                         <input type="file" onChange={onFileUpload} multiple style={{display: 'none'}} ref={fileInputRef} />
                         <Button type="submit" className="input-btn" onClick={() => fileInputRef.current.click()}>

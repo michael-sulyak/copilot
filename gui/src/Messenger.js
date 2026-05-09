@@ -6,14 +6,14 @@ import Footer from './components/Footer'
 import Notification from './components/Notification'
 import useNotifications from './hooks/useNotifications'
 import useSettings from './hooks/useSettings'
-import useChatState from './hooks/useChatState'
+import useMessengerState from './hooks/useMessengerState'
 import useFileUpload from './hooks/useFileUpload'
 import useAudioRecording from './hooks/useAudioRecording'
-import useDialog from './hooks/useDialog'
+import useChat from './hooks/useChat'
 import useInput from './hooks/useInput'
 
 
-function Chat() {
+function Messenger() {
     const chatBodyRef = useRef(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
@@ -38,10 +38,10 @@ function Chat() {
         [addNotification],
     )
     const {settings, getSettings} = useSettings({addNotification, processRpcError})
-    const {chatState, updateChatState} = useChatState()
+    const {chatState, updateMessangerState} = useMessengerState()
     const {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({
         addNotification,
-        updateChatState,
+        updateMessangerState,
     })
     const {
         inputValue,
@@ -57,7 +57,7 @@ function Chat() {
         attachedFiles,
         clearFiles,
         chatState,
-        updateChatState,
+        updateMessangerState,
         chatBodyRef,
         setMessages,
     })
@@ -67,22 +67,22 @@ function Chat() {
         setInputValue,
         chatState,
         uploadFiles,
-        updateChatState,
+        updateMessangerState,
         processRpcError,
     })
-    const {activateDialog, clearDialog} = useDialog({
-        updateChatState,
+    const {activateChat, clearChat} = useChat({
+        updateMessangerState,
         setMessages,
         clearFiles,
         getSettings,
         processRpcError,
     })
 
-    const activeDialog = settings.dialogs && settings.dialogs.find((dialog) => dialog.is_active)
+    const activeChat = settings.chats && settings.chats.find((chat) => chat.is_active)
 
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
-            <Header settings={settings} activateDialog={activateDialog} clearDialog={clearDialog}
+            <Header settings={settings} activateChat={activateChat} clearChat={clearChat}
                     insertText={setInputValue}/>
 
             <Card.Body className="chat-body" ref={chatBodyRef}>
@@ -103,7 +103,7 @@ function Chat() {
                 inputValue={inputValue}
                 textareaRef={textareaRef}
                 isLoading={isWaitingAnswer || chatState.status === 'loading'}
-                activeDialog={activeDialog}
+                activeChat={activeChat}
                 onFileUpload={onFileUpload}
                 fileInputRef={fileInputRef}
                 attachedFiles={attachedFiles}
@@ -126,4 +126,4 @@ function Chat() {
     )
 }
 
-export default Chat
+export default Messenger
