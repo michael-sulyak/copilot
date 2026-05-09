@@ -68,8 +68,10 @@ class FileSystem:
 
         if not abs_p.exists():
             raise FileNotFoundError(rel)
+
         if abs_p.is_dir():
             raise IsADirectoryError(rel)
+
         if not abs_p.is_file():
             raise OSError(f'Not a regular file: {rel}')
 
@@ -95,7 +97,7 @@ class FileSystem:
         abs_p.write_text(content or '', encoding=encoding, errors='strict')
         return abs_p
 
-    def mkdir(self, path: str, *, parents: bool = True, exist_ok: bool = True) -> Path:
+    def create_directory(self, path: str, *, parents: bool = True, exist_ok: bool = True) -> Path:
         abs_p = self.resolve(path)
         rel = self.to_rel_posix(abs_p)
         self.assert_allowed(rel, is_dir=True, for_write=True)
@@ -219,6 +221,37 @@ class FileSystem:
 
         return sorted(out)
 
+    def is_ignored(self, rel: str, *, is_dir: bool = False) -> bool:
+        rel = (rel or '.').strip().lstrip('/').replace('\\', '/')
+        if rel == '':
+            rel = '.'
+
+        if rel == '.':
+            return False
+
+        if self._is_protected(rel):
+            return True
+
+        if not self._use_git:
+            return False
+
+        key = rel
+        if is_dir and not key.endswith('/'):
+            key += '/'
+
+        cached = self._ignored_cache.get(key)
+        if cached is not None:
+            return cached
+
+        ignored = self._git_check_ignore_one(key)
+        self._ignored_cache[key] = ignored
+        return ignored
+
+    def assert_allowed(self, rel: str, *, is_dir: bool = False, for_write: bool = False) -> None:
+        if self.is_ignored(rel, is_dir=is_dir):
+            action = 'write' if for_write else 'access'
+            raise PermissionError(f'Refusing to {action} ignored or protected path: {rel}')
+
     def _fs_list_allowed_dirs(self, root: Path, *, recursive: bool) -> list[str]:
         out: list[str] = []
         rel_root = self.to_rel_posix(root)
@@ -273,7 +306,8 @@ class FileSystem:
 
         return out
 
-    def _filter_direct_children(self, files: list[str], rel_root: str) -> list[str]:
+    @staticmethod
+    def _filter_direct_children(files: list[str], rel_root: str) -> list[str]:
         """
         Keep only files that are direct children of rel_root (non-recursive listing).
         """
@@ -302,39 +336,6 @@ class FileSystem:
 
         first = rel.split('/', 1)[0]
         return first in self._protected_top
-
-    def is_ignored(self, rel: str, *, is_dir: bool = False) -> bool:
-        rel = (rel or '.').strip().lstrip('/').replace('\\', '/')
-        if rel == '':
-            rel = '.'
-
-        if rel == '.':
-            return False
-
-        if self._is_protected(rel):
-            return True
-
-        if not self._use_git:
-            return False
-
-        key = rel
-        if is_dir and not key.endswith('/'):
-            key += '/'
-
-        cached = self._ignored_cache.get(key)
-        if cached is not None:
-            return cached
-
-        ignored = self._git_check_ignore_one(key)
-        self._ignored_cache[key] = ignored
-        return ignored
-
-    def assert_allowed(self, rel: str, *, is_dir: bool = False, for_write: bool = False) -> None:
-        if self.is_ignored(rel, is_dir=is_dir):
-            action = 'write' if for_write else 'access'
-            raise PermissionError(f'Refusing to {action} ignored or protected path: {rel}')
-
-    # ---------- git helpers (only) ----------
 
     def _git_available(self) -> bool:
         try:

@@ -1,8 +1,7 @@
 from .files import (
-    ApplyDiffsTool, EditFilesTool, GitDiffTool, ListFilesTool, ReadFilesTool,
+    EditFilesTool, GitDiffTool, ListFilesTool, ReadFilesTool,
     SearchFilesTool,
 )
-
 
 TOOLS = (
     ReadFilesTool,
@@ -10,7 +9,7 @@ TOOLS = (
     SearchFilesTool,
     GitDiffTool,
     EditFilesTool,
-    ApplyDiffsTool,
+    # ApplyDiffsTool,
     # CreateFolderTool,
 )
 

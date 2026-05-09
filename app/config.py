@@ -3,7 +3,7 @@ import shutil
 import sys
 
 import yaml
-
+import datetime
 
 if getattr(sys, 'frozen', False):
     # When running as a bundled/compiled executable (AppImage in this case)
@@ -72,3 +72,6 @@ PROMPTS_DIR = os.path.join(CONFIGS_DIR, 'prompts')
 DIALOGS_PATH = os.path.join(CONFIGS_DIR, 'dialogs.yaml')
 MODELS_PATH = os.path.join(CONFIGS_DIR, 'models.yaml')
 CLEAN_RESPONSES = get_config_value('clean_responses')
+
+MAX_TIME_TO_WAIT_QUEUED = datetime.timedelta(minutes=5)
+MAX_TIME_TO_WAIT_IN_PROGRESS = datetime.timedelta(minutes=15)

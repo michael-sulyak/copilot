@@ -404,8 +404,6 @@ class BaseLLM:
                 nonlocal response
 
                 started_at = datetime.datetime.now()
-                wait_time_for_queued = datetime.timedelta(minutes=5)
-                wait_time_for_in_progress = datetime.timedelta(minutes=30)
                 iter_for_delay = get_iter_for_background_llm_task_processing()
 
                 while response.status in {'queued', 'in_progress'}:
@@ -414,9 +412,9 @@ class BaseLLM:
                     response = await cls.config.client.responses.retrieve(response.id)
 
                     if (
-                        (response.status == 'queued' and datetime.datetime.now() - started_at >= wait_time_for_queued)
+                        (response.status == 'queued' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_QUEUED)
                         or (
-                        response.status == 'in_progress' and datetime.datetime.now() - started_at >= wait_time_for_in_progress)
+                        response.status == 'in_progress' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_IN_PROGRESS)
                     ):
                         raise TaskIsStuck
 
