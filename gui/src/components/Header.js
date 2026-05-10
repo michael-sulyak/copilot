@@ -1,9 +1,7 @@
-import React, {useMemo} from 'react'
+import React from 'react'
 import {Button, Card, Dropdown, OverlayTrigger, Tooltip} from 'react-bootstrap'
 
-function Header({settings, activateChat, clearChat, insertText}) {
-    const activeChatName = useMemo(() => settings?.chats?.find((d) => d.is_active)?.name ?? 'Default', [settings?.chats])
-
+function Header({settings, clearChat, insertText}) {
     return (
         <Card.Header className="chat-header rounded-0">
             <div className="logo user-select-none fw-semibold text-center">
@@ -21,27 +19,11 @@ function Header({settings, activateChat, clearChat, insertText}) {
                     <Dropdown.Toggle variant="outline-primary" aria-label="Insert prompt">
                         <i className="fa-solid fa-folder-closed" aria-hidden="true"></i>
                     </Dropdown.Toggle>
+
                     <Dropdown.Menu>
                         {settings.prompts?.map((prompt) => (
                             <Dropdown.Item key={prompt.name} onClick={() => insertText(prompt.text)}>
                                 {prompt.name}
-                            </Dropdown.Item>
-                        ))}
-                    </Dropdown.Menu>
-                </Dropdown>
-
-                <Dropdown align="end">
-                    <Dropdown.Toggle variant="outline-primary" className="text-truncate" title={activeChatName}>
-                        {activeChatName}
-                    </Dropdown.Toggle>
-                    <Dropdown.Menu>
-                        {settings.chats?.map((chat) => (
-                            <Dropdown.Item
-                                key={chat.name}
-                                active={chat.is_active}
-                                onClick={() => !chat.is_active && activateChat(chat.name)}
-                            >
-                                {chat.name}
                             </Dropdown.Item>
                         ))}
                     </Dropdown.Menu>

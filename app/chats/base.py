@@ -7,9 +7,9 @@ import uuid
 
 from pydantic import BaseModel
 
-from .constants import Actions, Statuses
 from ..desktop_defs import OutputAction, OutputMessage
 from ..utils.local_file_storage import File
+from .constants import Actions, Statuses
 
 
 if typing.TYPE_CHECKING:

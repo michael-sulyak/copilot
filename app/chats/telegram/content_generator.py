@@ -10,8 +10,15 @@ from telethon.tl.types import Channel
 
 from app.chats.base import AnswerBtn, BaseChat, Conversation, Message, Request
 from app.chats.telegram.utils import get_telegram_client, init_telegram_client
-from app.models.openai.base import BaseLLM, GPTImage, LLMMessage, LLMResponse, FunctionLLMTool, LLMFunctionCall, \
-    LLMToolParam
+from app.models.openai.base import (
+    BaseLLM,
+    FunctionLLMTool,
+    GPTImage,
+    LLMFunctionCall,
+    LLMMessage,
+    LLMResponse,
+    LLMToolParam,
+)
 from app.models.openai.constants import LLMMessageRoles, LLMToolParamTypes
 from app.utils.common import gen_optimized_json
 from app.utils.local_file_storage import LocalFileStorage, get_file_storage
@@ -149,8 +156,8 @@ class ContentGenerator:
 
         if llm_response.parsed_content.safe:
             return llm_response.parsed_content.safe, content
-        else:
-            return llm_response.parsed_content.text
+
+        return llm_response.parsed_content.text
 
     @staticmethod
     async def _gen_image_from_prompt(prompt: str) -> str | bytes:

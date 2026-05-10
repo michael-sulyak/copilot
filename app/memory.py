@@ -3,6 +3,7 @@ import typing
 
 from .chats.base import Roles
 
+
 if typing.TYPE_CHECKING:
     from .models.openai.base import BaseLLMMessage, LLMMessage
 

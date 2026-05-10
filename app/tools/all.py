@@ -1,7 +1,11 @@
 from .files import (
-    EditFilesTool, GitDiffTool, ListFilesTool, ReadFilesTool,
+    EditFilesTool,
+    GitDiffTool,
+    ListFilesTool,
+    ReadFilesTool,
     SearchFilesTool,
 )
+
 
 TOOLS = (
     ReadFilesTool,

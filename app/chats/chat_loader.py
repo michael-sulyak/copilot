@@ -2,6 +2,9 @@ import typing
 
 import yaml
 
+from ..memory import Memory
+from ..models.openai.base import AVAILABLE_LLM_MODELS_MAP
+from ..utils.yaml import load_yaml_file
 from .base import BaseChat
 from .code_reviewer.chats import CodeManager
 from .drawer_chat import GptImageChat
@@ -11,9 +14,6 @@ from .profiles import PROFILES
 from .telegram.chats import gen_telegram_folder_reader
 from .telegram.content_generator import TelegramContentGeneratorChat
 from .tools import TOOLS_MAP
-from ..memory import Memory
-from ..models.openai.base import AVAILABLE_LLM_MODELS_MAP
-from ..utils.yaml import load_yaml_file
 
 
 def load_chat_config(path: str) -> dict:

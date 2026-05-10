@@ -1,13 +1,13 @@
 import logging
 import typing
 
+from ..memory import BaseMemory
+from ..models.openai.base import BaseLLM, LLMMessage, LLMResponse
+from ..models.openai.constants import NOTSET, LLMMessageRoles
+from ..utils.file_processor import FileProcessor
 from .base import BaseChat, ChatError, Conversation, Message, Request
 from .profiles import BaseProfile
 from .tools import BaseLLMTool
-from ..memory import BaseMemory
-from ..models.openai.base import BaseLLM, LLMMessage, LLMResponse
-from ..models.openai.constants import LLMMessageRoles, NOTSET
-from ..utils.file_processor import FileProcessor
 
 
 class Chat(BaseChat):

@@ -1,9 +1,10 @@
+import datetime
 import os
 import shutil
 import sys
 
 import yaml
-import datetime
+
 
 if getattr(sys, 'frozen', False):
     # When running as a bundled/compiled executable (AppImage in this case)

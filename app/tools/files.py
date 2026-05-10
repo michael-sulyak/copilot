@@ -5,11 +5,11 @@ import subprocess
 import typing
 from pathlib import Path
 
-from .additional_utils import gen_tool_error, suggest_similar_paths
-from .file_system import FileSystem
 from ..models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMToolParam, LLMToolParams
 from ..models.openai.constants import LLMToolParamTypes
 from ..utils.common import gen_optimized_json
+from .additional_utils import gen_tool_error, suggest_similar_paths
+from .file_system import FileSystem
 
 
 class BaseLLMToolFabric(abc.ABC):
@@ -21,7 +21,6 @@ class BaseLLMToolFabric(abc.ABC):
         Tool executor used by the LLM loop.
         NOTE: BaseLLM.execute calls tool.func(call), so we accept LLMToolCall here.
         """
-        pass
 
     def describe(self) -> FunctionLLMTool:
         params = {
@@ -109,7 +108,7 @@ class ReadFilesTool(BaseLLMToolFabric):
                             'message': f'File not found: {path_str}',
                         },
                         'suggestions': suggestions,
-                    }
+                    },
                 )
 
             except IsADirectoryError:
@@ -120,7 +119,7 @@ class ReadFilesTool(BaseLLMToolFabric):
                             'type': 'IsDirectory',
                             'message': 'Path is a directory. Use list_files for directories.',
                         },
-                    }
+                    },
                 )
 
             except PermissionError as e:
@@ -131,7 +130,7 @@ class ReadFilesTool(BaseLLMToolFabric):
                             'type': 'PermissionDenied',
                             'message': str(e),
                         },
-                    }
+                    },
                 )
 
             except ValueError as e:
@@ -142,7 +141,7 @@ class ReadFilesTool(BaseLLMToolFabric):
                             'type': 'InvalidPath',
                             'message': str(e),
                         },
-                    }
+                    },
                 )
 
             except OSError as e:
@@ -153,7 +152,7 @@ class ReadFilesTool(BaseLLMToolFabric):
                             'type': 'ReadFailed',
                             'message': str(e),
                         },
-                    }
+                    },
                 )
 
             results.append(item)
@@ -736,7 +735,7 @@ class ApplyDiffsTool(BaseLLMToolFabric):
                             description='Unified diff for that file (must contain @@ hunk headers)',
                             required=True,
                         ),
-                    )
+                    ),
                 ),
                 description='List of patch operations: each item contains `path` and `diff`',
                 required=True,
@@ -785,11 +784,11 @@ class ApplyDiffsTool(BaseLLMToolFabric):
 
             if expected_old_count is not None and seen_old != expected_old_count:
                 raise self.PatchApplyError(
-                    f'Hunk old-count mismatch: expected {expected_old_count}, saw {seen_old}'
+                    f'Hunk old-count mismatch: expected {expected_old_count}, saw {seen_old}',
                 )
             if expected_new_count is not None and seen_new != expected_new_count:
                 raise self.PatchApplyError(
-                    f'Hunk new-count mismatch: expected {expected_new_count}, saw {seen_new}'
+                    f'Hunk new-count mismatch: expected {expected_new_count}, saw {seen_new}',
                 )
 
             expected_old_count = None
@@ -819,11 +818,11 @@ class ApplyDiffsTool(BaseLLMToolFabric):
 
                 if target < idx:
                     raise self.PatchApplyError(
-                        f'Hunk applies before current position: target={target} idx={idx}'
+                        f'Hunk applies before current position: target={target} idx={idx}',
                     )
                 if target > len(orig_lines):
                     raise self.PatchApplyError(
-                        f'Hunk start beyond end of file: target={target} file_lines={len(orig_lines)}'
+                        f'Hunk start beyond end of file: target={target} file_lines={len(orig_lines)}',
                     )
 
                 out.extend(orig_lines[idx:target])
@@ -849,14 +848,14 @@ class ApplyDiffsTool(BaseLLMToolFabric):
             if op == ' ':
                 if idx >= len(orig_lines):
                     raise self.PatchApplyError(
-                        f'Context line beyond EOF at original index {idx}: {payload!r}'
+                        f'Context line beyond EOF at original index {idx}: {payload!r}',
                     )
                 if orig_lines[idx] != payload:
                     raise self.PatchApplyError(
                         'Context mismatch\n'
                         f'- At original line: {idx + 1}\n'
                         f'- Expected: {payload!r}\n'
-                        f'- Found:    {orig_lines[idx]!r}\n'
+                        f'- Found:    {orig_lines[idx]!r}\n',
                     )
                 out.append(payload)
                 idx += 1
@@ -866,14 +865,14 @@ class ApplyDiffsTool(BaseLLMToolFabric):
             elif op == '-':
                 if idx >= len(orig_lines):
                     raise self.PatchApplyError(
-                        f'Removal beyond EOF at original index {idx}: {payload!r}'
+                        f'Removal beyond EOF at original index {idx}: {payload!r}',
                     )
                 if orig_lines[idx] != payload:
                     raise self.PatchApplyError(
                         'Removal mismatch\n'
                         f'- At original line: {idx + 1}\n'
                         f'- Expected remove: {payload!r}\n'
-                        f'- Found:           {orig_lines[idx]!r}\n'
+                        f'- Found:           {orig_lines[idx]!r}\n',
                     )
                 idx += 1
                 seen_old += 1

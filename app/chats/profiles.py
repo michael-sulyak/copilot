@@ -42,7 +42,7 @@ def load_profiles_from_files(directory: str) -> dict[str, BaseProfile]:
     profiles = {}
 
     for file_name in sorted(os.listdir(directory)):
-        if not file_name.endswith(('.yaml', '.yml',)):
+        if not file_name.endswith(('.yaml', '.yml')):
             continue
 
         file_path = os.path.join(directory, file_name)

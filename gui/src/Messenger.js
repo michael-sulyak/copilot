@@ -11,6 +11,7 @@ import useFileUpload from './hooks/useFileUpload'
 import useAudioRecording from './hooks/useAudioRecording'
 import useChat from './hooks/useChat'
 import useInput from './hooks/useInput'
+import ChatTabs from "./components/ChatTabs";
 
 
 function Messenger() {
@@ -70,7 +71,7 @@ function Messenger() {
         updateMessangerState,
         processRpcError,
     })
-    const {activateChat, clearChat} = useChat({
+    const {openChat, closeChat, clearChat} = useChat({
         updateMessangerState,
         setMessages,
         clearFiles,
@@ -78,12 +79,21 @@ function Messenger() {
         processRpcError,
     })
 
-    const activeChat = settings.chats && settings.chats.find((chat) => chat.is_active)
+    const activeChat = settings.opened_chats && settings.opened_chats[0]
 
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
-            <Header settings={settings} activateChat={activateChat} clearChat={clearChat}
-                    insertText={setInputValue}/>
+            <Header
+                settings={settings}
+                clearChat={clearChat}
+                insertText={setInputValue}
+            />
+            
+            <ChatTabs
+                settings={settings}
+                openChat={openChat}
+                closeChat={closeChat}
+            />
 
             <Card.Body className="chat-body" ref={chatBodyRef}>
                 <div className="chat-body-shadow"></div>

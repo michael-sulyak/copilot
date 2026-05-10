@@ -43,16 +43,16 @@ class FileSystem:
         if self._use_git:
             if not self._git_available():
                 raise RuntimeError(
-                    f'git binary is not available: git_bin={self.git_bin!r} work_dir={self.work_dir}'
+                    f'git binary is not available: git_bin={self.git_bin!r} work_dir={self.work_dir}',
                 )
             if not self._git_is_inside_work_tree():
                 raise RuntimeError(
-                    f'work_dir is not a git work tree (cannot enforce .gitignore safely): {self.work_dir}'
+                    f'work_dir is not a git work tree (cannot enforce .gitignore safely): {self.work_dir}',
                 )
             if not self._git_check_ignore_supported():
                 raise RuntimeError(
                     'git check-ignore is not available or not working in this environment '
-                    f'for work_dir={self.work_dir}. Cannot enforce .gitignore safely.'
+                    f'for work_dir={self.work_dir}. Cannot enforce .gitignore safely.',
                 )
 
     def resolve(self, path: str) -> Path:

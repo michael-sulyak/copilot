@@ -1,7 +1,7 @@
 import asyncio
 import datetime
 import logging
-import os
+import uuid
 import weakref
 from typing import NoReturn
 
@@ -10,16 +10,18 @@ import aiohttp_rpc
 from aiohttp import web, web_ws
 
 from . import config
-from .desktop_defs import InputMessage, OutputMessage
 from .chats.base import BaseAnswer, BaseChat, ChatError, Conversation, Request
 from .chats.chat_loader import LazyChat, load_chats
 from .chats.prompts import PROMPTS
+from .desktop_defs import InputMessage, OutputMessage
 from .models.openai.base import Gpt4oTranscriber
 from .utils.local_file_storage import LocalFileStorage, get_file_storage
+from .utils.system import ask_gui_confirmation, get_pids_using_port, get_processes_using_port, kill_pids
 from .web.middlewares import index_middleware
 
 
-class ActiveChat:
+class OpenedChat:
+    uuid: uuid.UUID
     messages: dict[str, InputMessage | OutputMessage]
     original_chat: BaseChat | LazyChat
     chat: BaseChat
@@ -29,8 +31,9 @@ class ActiveChat:
         self.messages = {}
         self.original_chat = original_chat
         self.conversation = conversation
+        self.uuid = uuid.uuid4()
 
-    async def init_chat(self) -> None:
+    async def init(self) -> None:
         if isinstance(self.original_chat, LazyChat):
             try:
                 self.chat = self.original_chat()
@@ -46,12 +49,15 @@ class ActiveChat:
             await self.conversation.answer(welcome_message)
 
 
+class StopDesktopApp(Exception):
+    pass
+
 class DesktopApp:
     runner: web.AppRunner | None = None
     is_run: bool = True
     rpc_server: aiohttp_rpc.WSJSONRPCServer | None = None
     rpc_client: aiohttp_rpc.WSJSONRPCClient | None = None
-    active_chat: ActiveChat | None = None
+    opened_chat: OpenedChat | None = None
     chats_map: dict
     dev_mode: bool
     google_app_id: str | None
@@ -124,10 +130,47 @@ class DesktopApp:
         try:
             await site.start()
         except OSError:
-            os.system(f'kill -2 `lsof -t -i:{config.PORT}`')
+            process_info = await get_processes_using_port(config.PORT)
+            pids = await get_pids_using_port(config.PORT)
+
+            if not pids:
+                logging.exception('Port is busy, but no process was found.')
+                raise StopDesktopApp
+
+            confirmed = await ask_gui_confirmation(
+                title='Port is already in use',
+                text=(
+                    f'{process_info}\n\n'
+                    f'Do you want to kill the process and continue?'
+                ),
+            )
+
+            if not confirmed:
+                logging.info('User declined to kill process.')
+                raise StopDesktopApp
+
+            await kill_pids(pids, signal='-2')
             await site.stop()
             await asyncio.sleep(1)
-            os.system(f'kill -9 `lsof -t -i:{config.PORT}`')
+
+            remaining_pids = await get_pids_using_port(config.PORT)
+
+            if remaining_pids:
+                confirmed_force = await ask_gui_confirmation(
+                    title='Process did not stop',
+                    text=(
+                        f'The process using port {config.PORT} did not stop gracefully.\n\n'
+                        f'Remaining PID(s): {", ".join(remaining_pids)}\n\n'
+                        f'Force kill them?'
+                    ),
+                )
+
+                if not confirmed_force:
+                    logging.info('User declined force kill.')
+                    raise StopDesktopApp
+
+                await kill_pids(remaining_pids, signal='-9')
+
             await site.start()
 
     async def run_browser(self) -> None:
@@ -173,48 +216,55 @@ class DesktopApp:
         output_obj = answer.to_output_obj()
 
         if isinstance(output_obj, OutputMessage):
-            self.active_chat.messages[output_obj.uuid] = output_obj
+            self.opened_chat.messages[output_obj.uuid] = output_obj
 
         await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
 
     async def clear_chat(self) -> None:
-        if self.active_chat is not None:
-            self.active_chat.messages.clear()
-            await self.active_chat.chat.clear_history()
+        if self.opened_chat is not None:
+            self.opened_chat.messages.clear()
+            await self.opened_chat.chat.clear_history()
 
     async def get_settings(self) -> dict:
-        if self.active_chat is None:
+        if self.opened_chat is None:
             await self.open_chat(next(iter(self.chats_map.keys())))
 
         return {
-            'chats': [
+            'available_chats': [
                 {
                     'name': name,
-                    'is_active': self.active_chat and self.active_chat.original_chat == chat,
                 }
                 for name, chat in self.chats_map.items()
+            ],
+            'opened_chats': [
+                {
+                    'uuid': str(self.opened_chat.uuid),
+                    'name': name,
+                }
+                for name, chat in self.chats_map.items()
+                if self.opened_chat and self.opened_chat.original_chat == chat
             ],
             'prompts': PROMPTS,
         }
 
     async def get_history(self) -> list[dict]:
-        if not self.active_chat:
+        if not self.opened_chat:
             return []
 
         return [
             item.model_dump(by_alias=True)
-            for item in self.active_chat.messages.values()
+            for item in self.opened_chat.messages.values()
         ]
 
     async def open_chat(self, chat_name: str) -> None:
         await self.clear_chat()
 
-        self.active_chat = ActiveChat(
+        self.opened_chat = OpenedChat(
             original_chat=self.chats_map[chat_name],
             conversation=Conversation(app=self),
         )
 
-        await self.active_chat.init_chat()
+        await self.opened_chat.init()
 
     def finish(self) -> None:
         logging.info('Stopping...')
@@ -243,14 +293,14 @@ class DesktopApp:
                 ],
                 conversation=conversation,
             )
-            self.active_chat.messages[message.uuid] = message
+            self.opened_chat.messages[message.uuid] = message
 
         async def _process_request() -> None:
             try:
                 if message.is_callback:
-                    await self.active_chat.chat.handle_callback(request)
+                    await self.opened_chat.chat.handle_callback(request)
                 else:
-                    await self.active_chat.chat.handle(request)
+                    await self.opened_chat.chat.handle(request)
             except ChatError as e:
                 logging.warning(e)
                 await conversation.error(str(e))
@@ -284,19 +334,21 @@ class DesktopApp:
 
             if not config.USE_WEBVIEW:
                 await self.wait()
+        except StopDesktopApp:
+            pass
         finally:
             await self.clean()
 
     async def edit_message(self, message: dict) -> None:
         message = InputMessage.model_validate(message)
 
-        if message.uuid not in self.active_chat.messages:
+        if message.uuid not in self.opened_chat.messages:
             raise RuntimeError(f'Message with UUID "{message.uuid}" not found.')
 
-        self.active_chat.messages[message.uuid] = message
+        self.opened_chat.messages[message.uuid] = message
 
     async def delete_message(self, message_uuid: str) -> None:
-        self.active_chat.messages.pop(message_uuid, None)
+        self.opened_chat.messages.pop(message_uuid, None)
 
     async def process_audio(self, file_id: str) -> dict:
         audio_file = self.file_storage.get(file_id)

@@ -9,7 +9,7 @@ function useChat({updateMessangerState, setMessages, clearFiles, getSettings, pr
         setMessages(history)
     }, [setMessages, processRpcError])
 
-    const activateChat = useCallback(
+    const openChat = useCallback(
         async (chatName) => {
             const rpcClient = window.rpcClient
             await updateMessangerState({status: 'loading', text: null})
@@ -17,9 +17,24 @@ function useChat({updateMessangerState, setMessages, clearFiles, getSettings, pr
             await clearFiles()
             await rpcClient.call('open_chat', [chatName]).catch(processRpcError)
             await getSettings()
+            await getHistory()
             await updateMessangerState({status: 'idle', text: null})
         },
-        [updateMessangerState, setMessages, getSettings, clearFiles, processRpcError]
+        [updateMessangerState, setMessages, getSettings, getHistory, clearFiles, processRpcError]
+    )
+
+    const closeChat = useCallback(
+        async (chatName) => {
+            const rpcClient = window.rpcClient
+            await updateMessangerState({status: 'loading', text: null})
+            await setMessages([])
+            await clearFiles()
+            await rpcClient.call('close_chat', [chatName]).catch(processRpcError)
+            await getSettings()
+            await getHistory()
+            await updateMessangerState({status: 'idle', text: null})
+        },
+        [updateMessangerState, setMessages, clearFiles, getSettings, getHistory, processRpcError]
     )
 
     const clearChat = useCallback(async () => {
@@ -33,7 +48,7 @@ function useChat({updateMessangerState, setMessages, clearFiles, getSettings, pr
         getHistory()
     }, [getHistory])
 
-    return {activateChat, clearChat}
+    return {openChat, closeChat, clearChat}
 }
 
 export default useChat

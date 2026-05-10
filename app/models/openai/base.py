@@ -19,22 +19,27 @@ from openai.types.responses import (
     Response,
     ResponseFormatTextJSONSchemaConfigParam,
     ResponseFunctionToolCall,
-    ResponseOutputMessage, ResponseOutputText,
-    ResponseTextConfigParam, ResponseUsage,
+    ResponseOutputMessage,
+    ResponseOutputText,
+    ResponseTextConfigParam,
+    ResponseUsage,
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from pydantic import BaseModel
 
-from .constants import LLMContentTypes, LLMMessageRoles, LLMToolParamTypes, NOTSET
-from .utils import (
-    format_tool_chat_message, get_iter_for_background_llm_task_processing, num_tokens_from_messages,
-    prepare_llm_response_content,
-    process_llm_request_via_old_api, serialize_tool_output,
-)
 from ... import config
 from ...memory import BaseMemory, Memory
 from ...utils.common import chunk_generator, gen_optimized_json
 from ...utils.local_file_storage import File
+from .constants import NOTSET, LLMContentTypes, LLMMessageRoles, LLMToolParamTypes
+from .utils import (
+    format_tool_chat_message,
+    get_iter_for_background_llm_task_processing,
+    num_tokens_from_messages,
+    prepare_llm_response_content,
+    process_llm_request_via_old_api,
+    serialize_tool_output,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -692,21 +697,21 @@ class BaseLLM:
                         )
 
                 continue
+
+            if step_response.content is None:
+                memory.add_message(LLMMessage(
+                    role=LLMMessageRoles.ASSISTANT,
+                    content='',
+                ))
+                memory.add_message(LLMMessage(
+                    role=LLMMessageRoles.SYSTEM,
+                    content='Got empty response. Process the request again',
+                ))
             else:
-                if step_response.content is None:
-                    memory.add_message(LLMMessage(
-                        role=LLMMessageRoles.ASSISTANT,
-                        content='',
-                    ))
-                    memory.add_message(LLMMessage(
-                        role=LLMMessageRoles.SYSTEM,
-                        content='Got empty response. Process the request again',
-                    ))
-                else:
-                    memory.add_message(LLMMessage(
-                        role=LLMMessageRoles.ASSISTANT,
-                        content=step_response.content,
-                    ))
+                memory.add_message(LLMMessage(
+                    role=LLMMessageRoles.ASSISTANT,
+                    content=step_response.content,
+                ))
 
             if step_response.content is not None:
                 parsed_content = None

@@ -150,7 +150,7 @@ def get_changed_files(
             cwd=repo_dir,
             text=True,
         )
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         return ()  # TODO: fix and check if project has git
         # raise RuntimeError(f'git diff failed: {e}') from e
 

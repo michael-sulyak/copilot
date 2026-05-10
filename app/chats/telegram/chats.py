@@ -1,11 +1,11 @@
 import logging
 import typing
 
-from .message_aggregator import MessageGroup, TelegramMessageAggregator
-from .message_extractor import TelegramMessageExtractor
-from ..base import AnswerBtn, BaseChat, Message, Request
 from ...models.openai.base import BaseLLM
 from ...utils.common import escape_markdown
+from ..base import AnswerBtn, BaseChat, Message, Request
+from .message_aggregator import MessageGroup, TelegramMessageAggregator
+from .message_extractor import TelegramMessageExtractor
 
 
 class TelegramMessageChat(BaseChat):

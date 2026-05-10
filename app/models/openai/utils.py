@@ -5,19 +5,19 @@ import random
 import re
 import string
 import typing
-import uuid
 from io import BytesIO
 
 import tiktoken
-from PIL import Image
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.responses import (
     Response,
     ResponseFunctionToolCall,
-    ResponseOutputMessage, ResponseOutputText,
+    ResponseOutputMessage,
+    ResponseOutputText,
     ResponseUsage,
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
+from PIL import Image
 from tiktoken.model import MODEL_TO_ENCODING
 from tiktoken.registry import get_encoding
 
@@ -260,9 +260,9 @@ def format_tool_chat_message(
     """
 
     header_map = {
-        'call': "🚀 **Tool execution started**",
-        'result': "✅ **Tool execution completed**",
-        'error': "❌ **Tool execution failed**",
+        'call': '🚀 **Tool execution started**',
+        'result': '✅ **Tool execution completed**',
+        'error': '❌ **Tool execution failed**',
     }
 
     lines: list[str] = []

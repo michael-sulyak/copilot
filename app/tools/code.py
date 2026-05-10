@@ -5,9 +5,10 @@ import time
 
 from app.models.openai.base import FunctionLLMTool, LLMToolParam
 from app.models.openai.constants import LLMToolParamTypes
+
+from ..utils.common import gen_optimized_json
 from .additional_utils import trim_text
 from .files import BaseLLMToolFabric, gen_tool_error
-from ..utils.common import gen_optimized_json
 
 
 class RunPythonTool(BaseLLMToolFabric):
@@ -108,6 +109,7 @@ class RunPythonTool(BaseLLMToolFabric):
                         capture_output=True,
                         text=True,
                         timeout=timeout + 3.0,
+                        check=False,
                     )
                 except FileNotFoundError:
                     return gen_tool_error(
