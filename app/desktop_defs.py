@@ -40,6 +40,7 @@ class InputMessage(BaseModel):
 
 class OutputMessage(BaseModel):
     uuid: str
+    chat_uuid: str
     type_: str = Field(..., alias='type')
     from_: str = Field(..., alias='from')
     body: GptBodyContent
@@ -51,6 +52,7 @@ class OutputMessage(BaseModel):
 
 
 class OutputAction(BaseModel):
+    chat_uuid: str
     type_: str = Field(..., alias='type')
     name: str
     payload: typing.Any
