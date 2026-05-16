@@ -12,6 +12,7 @@ import useAudioRecording from './hooks/useAudioRecording'
 import useChat from './hooks/useChat'
 import useInput from './hooks/useInput'
 import ChatTabs from "./components/ChatTabs";
+import useActiveChat from "./hooks/useActiveChat";
 
 
 function Messenger() {
@@ -39,6 +40,7 @@ function Messenger() {
         [addNotification],
     )
     const {settings, getSettings} = useSettings({addNotification, processRpcError})
+    const {activeChat, setActiveChat} = useActiveChat({settings})
     const {chatState, updateMessangerState} = useMessengerState()
     const {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({
         addNotification,
@@ -61,6 +63,7 @@ function Messenger() {
         updateMessangerState,
         chatBodyRef,
         setMessages,
+        activeChat,
     })
     const {recordingState, startRecording, stopRecording} = useAudioRecording({
         addNotification,
@@ -75,17 +78,20 @@ function Messenger() {
         updateMessangerState,
         setMessages,
         clearFiles,
+        settings,
         getSettings,
         processRpcError,
+        activeChat,
+        setActiveChat,
     })
 
-    const activeChat = settings.opened_chats && settings.opened_chats[0]
+    const clearActiveChat = () => activeChat && clearChat(activeChat.uuid)
 
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
             <Header
                 settings={settings}
-                clearChat={clearChat}
+                clearChat={clearActiveChat}
                 insertText={setInputValue}
             />
             
@@ -93,6 +99,8 @@ function Messenger() {
                 settings={settings}
                 openChat={openChat}
                 closeChat={closeChat}
+                activeChat={activeChat}
+                setActiveChat={setActiveChat}
             />
 
             <Card.Body className="chat-body" ref={chatBodyRef}>

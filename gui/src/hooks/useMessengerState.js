@@ -17,7 +17,7 @@ function useMessengerState() {
                 const newStatus = status === undefined ? prev.status : status
 
                 if (prev.timestamp <= newTimestamp) {
-                    console.log({timestamp: newTimestamp, text: newText, prevText: prev.text, status: newStatus})
+                    console.log('Chat state:', {timestamp: newTimestamp, text: newText, prevText: prev.text, status: newStatus})
                     return {timestamp: newTimestamp, text: newText, prevText: prev.text, status: newStatus}
                 }
 

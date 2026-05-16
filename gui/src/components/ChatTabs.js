@@ -1,14 +1,14 @@
 import React, {useMemo} from 'react'
 import {Button, Dropdown} from 'react-bootstrap'
 
-function ChatTabs({settings, openChat, closeChat}) {
+function ChatTabs({settings, openChat, closeChat, activeChat, setActiveChat}) {
     const openedChats = settings.opened_chats ?? []
     const availableChats = settings.available_chats ?? []
 
-    const handleCloseChat = async (event, chatName) => {
+    const handleCloseChat = async (event, chatUuid) => {
         event.preventDefault()
         event.stopPropagation()
-        await closeChat(chatName)
+        await closeChat(chatUuid)
     }
 
     return (
@@ -16,10 +16,11 @@ function ChatTabs({settings, openChat, closeChat}) {
             <div className="chat-tabs-scroll">
                 {openedChats.map((chat) => (
                     <Button
+                        active={(activeChat && activeChat.uuid) === chat.uuid}
                         key={chat.name}
                         type="button"
                         className={`chat-tab ${chat.is_active ? 'active' : ''}`}
-                        onClick={() => !chat.is_active && openChat(chat.name)}
+                        onClick={() => (activeChat && activeChat.uuid) !== chat.uuid && setActiveChat(chat)}
                         title={chat.name}
                     >
                         <span className="chat-tab-title">{chat.name}</span>
@@ -30,7 +31,7 @@ function ChatTabs({settings, openChat, closeChat}) {
                                 role="button"
                                 aria-label={`Close ${chat.name}`}
                                 title={`Close ${chat.name}`}
-                                onClick={(event) => handleCloseChat(event, chat.name)}
+                                onClick={(event) => handleCloseChat(event, chat.uuid)}
                             >
                                 <i className="fa-solid fa-xmark" aria-hidden="true"></i>
                             </span>

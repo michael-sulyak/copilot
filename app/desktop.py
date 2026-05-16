@@ -28,8 +28,7 @@ class DesktopApp:
     is_run: bool = True
     rpc_server: aiohttp_rpc.WSJSONRPCServer | None = None
     rpc_client: aiohttp_rpc.WSJSONRPCClient | None = None
-    opened_chat: OpenedChat | None = None
-    opened_chats_map: dict[str, OpenedChat | None]  # TODO: Start using
+    opened_chats_map: dict[str, OpenedChat]
     available_chats_map: dict
     dev_mode: bool
     google_app_id: str | None
@@ -68,8 +67,9 @@ class DesktopApp:
             aiohttp_rpc.JSONRPCMethod(self.get_settings, name='get_settings'),
             aiohttp_rpc.JSONRPCMethod(self.open_chat, name='open_chat'),
             aiohttp_rpc.JSONRPCMethod(self.clear_chat, name='clear_chat'),
+            aiohttp_rpc.JSONRPCMethod(self.close_chat, name='close_chat'),
             aiohttp_rpc.JSONRPCMethod(self.process_audio, name='process_audio'),
-            aiohttp_rpc.JSONRPCMethod(self.delete_message, name='delete_message'),
+            # aiohttp_rpc.JSONRPCMethod(self.delete_message, name='delete_message'),
         ))
 
         app = web.Application(middlewares=(
@@ -182,13 +182,16 @@ class DesktopApp:
         if self.runner:
             await self.runner.cleanup()
 
-    async def clear_chat(self) -> None:
-        if self.opened_chat is not None:
-            self.opened_chat.messages.clear()
-            await self.opened_chat.chat.clear_history()
+    async def clear_chat(self, chat_uuid: str) -> None:
+        opened_chat = self.opened_chats_map[chat_uuid]
+        opened_chat.history.clear()
+        await opened_chat.chat.clear_history()
+
+    async def close_chat(self, chat_uuid: str) -> None:
+        del self.opened_chats_map[chat_uuid]
 
     async def get_settings(self) -> dict:
-        if self.opened_chat is None:
+        if not self.opened_chats_map:
             await self.open_chat(next(iter(self.available_chats_map.keys())))
 
         return {
@@ -200,33 +203,35 @@ class DesktopApp:
             ],
             'opened_chats': [
                 {
-                    'uuid': str(self.opened_chat.uuid),
-                    'name': name,
+                    'uuid': str(opened_chat.uuid),
+                    'name': opened_chat.name,
                 }
-                for name, chat in self.available_chats_map.items()
-                if self.opened_chat and self.opened_chat.original_chat == chat
+                for opened_chat in self.opened_chats_map.values()
             ],
             'prompts': PROMPTS,
         }
 
-    async def get_history(self) -> list[dict]:
-        if not self.opened_chat:
+    async def get_history(self, chat_uuid: str) -> list[dict]:
+        if not self.opened_chats_map:
             return []
 
         return [
             item.model_dump(by_alias=True)
-            for item in self.opened_chat.messages.values()
+            for item in self.opened_chats_map[chat_uuid].history.values()
         ]
 
     async def open_chat(self, chat_name: str) -> None:
-        await self.clear_chat()
+        assert self.rpc_client is not None
 
-        self.opened_chat = OpenedChat(
+        opened_chat = OpenedChat(
+            name=chat_name,
             original_chat=self.available_chats_map[chat_name],
             rpc_client=self.rpc_client,
         )
 
-        await self.opened_chat.init()
+        self.opened_chats_map[str(opened_chat.uuid)] = opened_chat
+
+        await opened_chat.init()
 
     def finish(self) -> None:
         logging.info('Stopping...')
@@ -237,14 +242,13 @@ class DesktopApp:
             self.is_run = False
 
     async def process_message(self, message: dict) -> None:
-        assert self.opened_chat is not None
-
         message = InputMessage.model_validate(message)
+        opened_chat = self.opened_chats_map[message.chat_uuid]
 
         if message.is_callback:
             request = Request(
                 callback=message.body.callback,
-                conversation=self.opened_chat.conversation,
+                conversation=opened_chat.conversation,
             )
         else:
             request = Request(
@@ -254,26 +258,26 @@ class DesktopApp:
                     for file_id in message.body.attachments
                     if (file := self.file_storage.get(file_id))
                 ],
-                conversation=self.opened_chat.conversation,
+                conversation=opened_chat.conversation,
             )
-            self.opened_chat.messages[message.uuid] = message
+            opened_chat.history[message.uuid] = message
 
         async def _process_request() -> None:
             try:
                 if message.is_callback:
-                    await self.opened_chat.chat.handle_callback(request)
+                    await opened_chat.chat.handle_callback(request)
                 else:
-                    await self.opened_chat.chat.handle(request)
+                    await opened_chat.chat.handle(request)
             except ChatError as e:
                 logging.warning(e)
-                await self.opened_chat.conversation.error(str(e))
+                await opened_chat.conversation.error(str(e))
             except Exception as e:
                 logging.exception('Unhandled exception')
-                await self.opened_chat.conversation.exception(e)
+                await opened_chat.conversation.exception(e)
             finally:
-                await self.opened_chat.conversation.finish()
+                await opened_chat.conversation.finish()
 
-        await self.opened_chat.conversation.start()
+        await opened_chat.conversation.start()
         asyncio.create_task(_process_request())
 
     async def handle_file_upload(self, request: web.Request) -> web.Response:
@@ -286,7 +290,7 @@ class DesktopApp:
             ],
         })
 
-    async def run(self) -> NoReturn:
+    async def run(self) -> None:
         await self.init()
 
         try:
@@ -302,16 +306,16 @@ class DesktopApp:
         finally:
             await self.clean()
 
-    async def edit_message(self, message: dict) -> None:
-        message = InputMessage.model_validate(message)
+    # async def edit_message(self, message: dict) -> None:
+    #     message = InputMessage.model_validate(message)
+    #
+    #     if message.uuid not in self.opened_chat.history:
+    #         raise RuntimeError(f'Message with UUID "{message.uuid}" not found.')
+    #
+    #     self.opened_chat.history[message.uuid] = message
 
-        if message.uuid not in self.opened_chat.messages:
-            raise RuntimeError(f'Message with UUID "{message.uuid}" not found.')
-
-        self.opened_chat.messages[message.uuid] = message
-
-    async def delete_message(self, message_uuid: str) -> None:
-        self.opened_chat.messages.pop(message_uuid, None)
+    # async def delete_message(self, message_uuid: str) -> None:
+    #     self.opened_chat.history.pop(message_uuid, None)
 
     async def process_audio(self, file_id: str) -> dict:
         audio_file = self.file_storage.get(file_id)

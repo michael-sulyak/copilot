@@ -12,6 +12,7 @@ function useChatState({
     updateMessangerState,
     setMessages,
     processRpcError,
+    activeChat,
 }) {
     const [inputValue, setInputValue] = useState('')
     const [isWaitingAnswer, setIsWaitingAnswer] = useState(false)
@@ -46,8 +47,8 @@ function useChatState({
                 await setMessages((messages) => [...messages, message])
 
                 if (userInteractionTrigger) {
-                    await setUserInteractionTrigger(false)
-                    await setNeedToScrollChat(true)
+                    setUserInteractionTrigger(false)
+                    setNeedToScrollChat(true)
                 }
             } else if (message.type === 'action') {
                 if (message.name === 'set_chat_status') {
@@ -74,19 +75,20 @@ function useChatState({
             return
         }
 
-        await setIsWaitingAnswer(true)
-        await setInputValue('')
+        setIsWaitingAnswer(true)
+        setInputValue('')
         textareaRef.current.focus()
 
         if (await needToTurnOnVPN({addNotification})) {
             await showMsgAboutVPN()
-            await setInputValue(message)
-            await setIsWaitingAnswer(false)
+            setInputValue(message)
+            setIsWaitingAnswer(false)
             return
         }
 
         const preparedMessage = {
             uuid: uuid.v4(),
+            chat_uuid: activeChat.uuid,
             from: 'user',
             body: {
                 content: message,
@@ -99,13 +101,13 @@ function useChatState({
 
         await setMessages((messages) => [...messages, preparedMessage])
 
-        await setUserInteractionTrigger(true)
-        await setNeedToScrollChat(true)
+        setUserInteractionTrigger(true)
+        setNeedToScrollChat(true)
 
         await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
 
         await clearFiles()
-        await setIsWaitingAnswer(false)
+        setIsWaitingAnswer(false)
     }, [
         processRpcError,
         setNeedToScrollChat,
@@ -124,10 +126,10 @@ function useChatState({
         async (messageUuid) => {
             console.log(`deleteMessage ${messageUuid}`)
             const rpcClient = window.rpcClient
-            await setIsWaitingAnswer(true)
+            setIsWaitingAnswer(true)
             await rpcClient.call('delete_message', [messageUuid]).catch(processRpcError)
             await setMessages((messages) => messages.filter((message) => message.uuid !== messageUuid))
-            await setIsWaitingAnswer(false)
+            setIsWaitingAnswer(false)
         },
         [setMessages, setIsWaitingAnswer, processRpcError]
     )

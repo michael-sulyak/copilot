@@ -126,15 +126,19 @@ class TelegramMessageAggregator:
 
     @staticmethod
     def _prepare_answer_for_llm_response(group: MessageGroup | None, llm_response: LLMResponse) -> Message:
-        content = remove_triple_backticks(llm_response.content)
 
-        if group:
-            prefix = ''.join(
-                f'{"#" * (i + 1)} {escape_markdown(str(item))}\n'
-                for i, item in enumerate(group.titles)
-                if item is not None
-            )
-            content = f'{prefix}---\n\n{content}'
+        if llm_response.content:
+            content = remove_triple_backticks(llm_response.content)
+
+            if group:
+                prefix = ''.join(
+                    f'{"#" * (i + 1)} {escape_markdown(str(item))}\n'
+                    for i, item in enumerate(group.titles)
+                    if item is not None
+                )
+                content = f'{prefix}---\n\n{content}'
+        else:
+            content = 'Empty content'
 
         return Message(
             content=content,

@@ -26,6 +26,7 @@ class BodyCallback(BaseModel):
 
 class InputMessage(BaseModel):
     uuid: str
+    chat_uuid: str
     from_: str = Field(..., alias='from')
     body: BodyContentAttachments | BodyCallback
     __ui__: dict | None = None  # It doesn't matter on backend side.
