@@ -4,7 +4,7 @@ import datetime
 import time
 import typing
 import uuid
-from typing import OrderedDict
+from collections import OrderedDict
 
 import aiohttp_rpc
 from pydantic import BaseModel
@@ -106,12 +106,12 @@ class Conversation:
     methods to send messages, update chat status, and report errors to the UI.
     """
 
-    _rpc_client: aiohttp_rpc.WSJSONRPCClient
+    rpc_client: aiohttp_rpc.WSJSONRPCClient
     _opened_chat: 'OpenedChat'
     _chat_status: Statuses.IDLE
 
     def __init__(self, *, rpc_client: aiohttp_rpc.WSJSONRPCClient, opened_chat: 'OpenedChat') -> None:
-        self._rpc_client = rpc_client
+        self.rpc_client = rpc_client
         self._opened_chat = opened_chat
 
     async def answer(self, answer: BaseAnswer) -> None:
@@ -120,10 +120,10 @@ class Conversation:
         if isinstance(output_obj, OutputMessage):
             self._opened_chat.history[output_obj.uuid] = output_obj
 
-        await self._rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
+        await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
 
     async def notify(self, text: str) -> None:
-        await self._rpc_client.notify('show_notification', text)
+        await self.rpc_client.notify('show_notification', text)
 
     async def start(self) -> None:
         self._chat_status = Statuses.LOADING

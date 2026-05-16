@@ -1,8 +1,8 @@
 import asyncio
 import datetime
 import logging
+import typing
 import weakref
-from typing import NoReturn
 
 import aiohttp_cors
 import aiohttp_rpc
@@ -30,6 +30,7 @@ class DesktopApp:
     rpc_client: aiohttp_rpc.WSJSONRPCClient | None = None
     opened_chats_map: dict[str, OpenedChat]
     available_chats_map: dict
+    processing_tasks: dict[str, set[asyncio.Task]]
     dev_mode: bool
     google_app_id: str | None
     file_storage: LocalFileStorage
@@ -37,14 +38,16 @@ class DesktopApp:
     def __init__(self, *, dev_mode: bool, google_app_id: str | None) -> None:
         self.dev_mode = dev_mode
         self.google_app_id = google_app_id
+        self.is_run = True
 
     async def init(self) -> None:
         self.file_storage = get_file_storage()
         self.available_chats_map = load_chats(config.CHATS_PATH)
         self.opened_chats_map = {}
+        self.processing_tasks = {}
 
     async def start(self) -> None:
-        logging.info('Staring...')
+        logging.info('Starting...')
 
         self.rpc_server = aiohttp_rpc.WSJSONRPCServer(
             middlewares=aiohttp_rpc.middlewares.DEFAULT_MIDDLEWARES,
@@ -56,6 +59,10 @@ class DesktopApp:
             def add(self, ws_connect: web_ws.WebSocketResponse) -> None:
                 logging.info('Added `rpc_client`.')
                 desktop_app.rpc_client = aiohttp_rpc.WSJSONRPCClient(ws_connect=ws_connect)
+
+                for opened_chat in desktop_app.opened_chats_map.values():
+                    opened_chat.conversation.rpc_client = desktop_app.rpc_client
+
                 super().add(ws_connect)
 
         self.rpc_server.rpc_websockets = CustomWeakSetToTrack()
@@ -79,8 +86,11 @@ class DesktopApp:
             web.get('/rpc', self.rpc_server.handle_http_request),
             web.post('/upload-file', self.handle_file_upload),
         ))
-        app.router.add_static(self.file_storage.showed_directory, path=self.file_storage.target_directory,
-                              name='uploads')
+        app.router.add_static(
+            self.file_storage.showed_directory,
+            path=self.file_storage.target_directory,
+            name='uploads',
+        )
         app.router.add_static('/', path=config.STATICS_DIR, name='static')
         app.on_shutdown.append(self.rpc_server.on_shutdown)
 
@@ -133,7 +143,7 @@ class DesktopApp:
                     title='Process did not stop',
                     text=(
                         f'The process using port {config.PORT} did not stop gracefully.\n\n'
-                        f'Remaining PID(s): {", ".join(remaining_pids)}\n\n'
+                        f'Remaining PID(s): {", ".join(map(str, remaining_pids))}\n\n'
                         f'Force kill them?'
                     ),
                 )
@@ -164,7 +174,7 @@ class DesktopApp:
 
             await proc.communicate()
 
-    async def wait(self) -> NoReturn:
+    async def wait(self) -> typing.NoReturn:
         logging.info('Waiting...')
         wait_time = datetime.timedelta(minutes=1)
         started_looking_at = datetime.datetime.now()
@@ -179,25 +189,32 @@ class DesktopApp:
     async def clean(self) -> None:
         logging.info('Cleaning...')
 
+        for chat_uuid in list(self.processing_tasks.keys()):
+            await self._cancel_chat_tasks(chat_uuid)
+
         if self.runner:
             await self.runner.cleanup()
 
     async def clear_chat(self, chat_uuid: str) -> None:
-        opened_chat = self.opened_chats_map[chat_uuid]
+        opened_chat = self._get_opened_chat(chat_uuid)
         opened_chat.history.clear()
         await opened_chat.chat.clear_history()
 
     async def close_chat(self, chat_uuid: str) -> None:
+        self._get_opened_chat(chat_uuid)
+
+        await self._cancel_chat_tasks(chat_uuid)
         del self.opened_chats_map[chat_uuid]
 
     async def get_settings(self) -> dict:
         if not self.opened_chats_map:
-            await self.open_chat(next(iter(self.available_chats_map.keys())))
+            await self.open_chat(self._get_default_chat_name())
 
         return {
             'available_chats': [
                 {
                     'name': name,
+                    'files_are_supported': self._chat_files_are_supported(chat),
                 }
                 for name, chat in self.available_chats_map.items()
             ],
@@ -205,6 +222,7 @@ class DesktopApp:
                 {
                     'uuid': str(opened_chat.uuid),
                     'name': opened_chat.name,
+                    'files_are_supported': self._chat_files_are_supported(opened_chat.chat),
                 }
                 for opened_chat in self.opened_chats_map.values()
             ],
@@ -215,23 +233,51 @@ class DesktopApp:
         if not self.opened_chats_map:
             return []
 
+        opened_chat = self._get_opened_chat(chat_uuid)
+
         return [
             item.model_dump(by_alias=True)
-            for item in self.opened_chats_map[chat_uuid].history.values()
+            for item in opened_chat.history.values()
         ]
 
-    async def open_chat(self, chat_name: str) -> None:
-        assert self.rpc_client is not None
+    async def open_chat(self, chat_name: str) -> dict:
+        if chat_name not in self.available_chats_map:
+            raise ValueError(f'Chat "{chat_name}" is not available.')
+
+        rpc_client = self._get_rpc_client()
+
+        number = 0
+        new_chat_name = chat_name
+        chat_name_is_correct = None
+
+        while not chat_name_is_correct:
+            for opened_chat in self.opened_chats_map.values():
+                if new_chat_name == opened_chat.name:
+                    number += 1
+                    new_chat_name = f'{chat_name} - {number}'
+                    break
+            else:
+                chat_name_is_correct = True
 
         opened_chat = OpenedChat(
-            name=chat_name,
+            name=new_chat_name,
             original_chat=self.available_chats_map[chat_name],
-            rpc_client=self.rpc_client,
+            rpc_client=rpc_client,
         )
 
         self.opened_chats_map[str(opened_chat.uuid)] = opened_chat
 
-        await opened_chat.init()
+        try:
+            await opened_chat.init()
+        except Exception:
+            self.opened_chats_map.pop(str(opened_chat.uuid), None)
+            raise
+
+        return {
+            'uuid': str(opened_chat.uuid),
+            'name': opened_chat.name,
+            'files_are_supported': self._chat_files_are_supported(opened_chat.chat),
+        }
 
     def finish(self) -> None:
         logging.info('Stopping...')
@@ -243,7 +289,7 @@ class DesktopApp:
 
     async def process_message(self, message: dict) -> None:
         message = InputMessage.model_validate(message)
-        opened_chat = self.opened_chats_map[message.chat_uuid]
+        opened_chat = self._get_opened_chat(message.chat_uuid)
 
         if message.is_callback:
             request = Request(
@@ -268,6 +314,9 @@ class DesktopApp:
                     await opened_chat.chat.handle_callback(request)
                 else:
                     await opened_chat.chat.handle(request)
+            except asyncio.CancelledError:
+                logging.info('Processing task for chat "%s" was cancelled.', message.chat_uuid)
+                raise
             except ChatError as e:
                 logging.warning(e)
                 await opened_chat.conversation.error(str(e))
@@ -275,10 +324,15 @@ class DesktopApp:
                 logging.exception('Unhandled exception')
                 await opened_chat.conversation.exception(e)
             finally:
-                await opened_chat.conversation.finish()
+                try:
+                    await opened_chat.conversation.finish()
+                except Exception:
+                    logging.exception('Failed to finish conversation for chat "%s".', message.chat_uuid)
 
         await opened_chat.conversation.start()
-        asyncio.create_task(_process_request())
+
+        task = asyncio.create_task(_process_request())
+        self._track_chat_task(message.chat_uuid, task)
 
     async def handle_file_upload(self, request: web.Request) -> web.Response:
         saved_files = await self.file_storage.save_files(request)
@@ -337,3 +391,64 @@ class DesktopApp:
             'text': result.text,
             'cost': result.cost,
         }
+
+    def _get_rpc_client(self) -> aiohttp_rpc.WSJSONRPCClient:
+        if self.rpc_client is None:
+            raise RuntimeError('RPC client is not connected.')
+
+        return self.rpc_client
+
+    def _get_opened_chat(self, chat_uuid: str) -> OpenedChat:
+        opened_chat = self.opened_chats_map.get(chat_uuid)
+
+        if not opened_chat:
+            raise ValueError(f'Chat "{chat_uuid}" is not opened.')
+
+        return opened_chat
+
+    def _get_default_chat_name(self) -> str:
+        try:
+            return next(iter(self.available_chats_map.keys()))
+        except StopIteration:
+            raise RuntimeError('No chats are available.')
+
+    def _track_chat_task(self, chat_uuid: str, task: asyncio.Task) -> None:
+        self.processing_tasks.setdefault(chat_uuid, set()).add(task)
+        task.add_done_callback(lambda completed_task: self._discard_chat_task(chat_uuid, completed_task))
+
+    def _discard_chat_task(self, chat_uuid: str, task: asyncio.Task) -> None:
+        tasks = self.processing_tasks.get(chat_uuid)
+
+        if not tasks:
+            return
+
+        tasks.discard(task)
+
+        if not tasks:
+            self.processing_tasks.pop(chat_uuid, None)
+
+    async def _cancel_chat_tasks(self, chat_uuid: str) -> None:
+        tasks = self.processing_tasks.pop(chat_uuid, set())
+
+        if not tasks:
+            return
+
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    @staticmethod
+    def _chat_files_are_supported(chat: typing.Any) -> bool:
+        return bool(
+            getattr(
+                chat,
+                'files_are_supported',
+                getattr(
+                    chat,
+                    'files_supported',
+                    getattr(chat, 'supports_files', False),
+                ),
+            ),
+        )

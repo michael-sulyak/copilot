@@ -3,7 +3,7 @@ import {getTimestampNs, isImage} from '../utils'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
 
-function useFileUpload({addNotification, updateMessangerState}) {
+function useFileUpload({addNotification, updateMessengerState}) {
     const [attachedFiles, setAttachedFiles] = useState([])
 
     const clearFiles = useCallback(() => {
@@ -29,7 +29,7 @@ function useFileUpload({addNotification, updateMessangerState}) {
                         const percentComplete = Math.round((event.loaded / event.total) * 100)
 
                         if (percentComplete !== 100) {
-                            await updateMessangerState({text: `File uploading... (${percentComplete}%)`})
+                            await updateMessengerState({text: `File uploading... (${percentComplete}%)`})
                         }
                     }
                 }
@@ -40,13 +40,13 @@ function useFileUpload({addNotification, updateMessangerState}) {
 
                 if (updateMessangerStateText) {
                     if (xhr.status === 200) {
-                        await updateMessangerState({text: 'Files uploaded successfully', timestamp})
+                        await updateMessengerState({text: 'Files uploaded successfully', timestamp})
                     } else {
-                        await updateMessangerState({text: 'Failed to upload files', timestamp})
+                        await updateMessengerState({text: 'Failed to upload files', timestamp})
                     }
 
                     setTimeout(() => {
-                        updateMessangerState({text: null, timestamp: timestamp + 1})
+                        updateMessengerState({text: null, timestamp: timestamp + 1})
                     }, 2000)
                 } else if (xhr.status !== 200) {
                     await addNotification('Failed to upload files')
@@ -62,7 +62,7 @@ function useFileUpload({addNotification, updateMessangerState}) {
             }
             xhr.send(formData)
         },
-        [addNotification, updateMessangerState]
+        [addNotification, updateMessengerState]
     )
 
     const onFileUpload = async (e) => {

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useRef, useState} from 'react'
 import {needToTurnOnVPN} from '../utils'
 import * as uuid from 'uuid'
 
@@ -9,15 +9,30 @@ function useChatState({
     attachedFiles,
     clearFiles,
     chatState,
-    updateMessangerState,
+    updateMessengerState,
     setMessages,
     processRpcError,
     activeChat,
 }) {
     const [inputValue, setInputValue] = useState('')
-    const [isWaitingAnswer, setIsWaitingAnswer] = useState(false)
-    const [userInteractionTrigger, setUserInteractionTrigger] = useState(null)
+    const [waitingByChatUuid, setWaitingByChatUuid] = useState({})
+    const userInteractionTriggerRef = useRef(false)
+    const activeChatRef = useRef(activeChat)
     const [needToScrollChat, setNeedToScrollChat] = useState(null)
+    const activeChatUuid = activeChat?.uuid ?? null
+    const isWaitingAnswer = activeChatUuid ? !!waitingByChatUuid[activeChatUuid] : false
+
+    useEffect(() => {
+        activeChatRef.current = activeChat
+    }, [activeChat])
+
+    const setChatWaiting = useCallback((chatUuid, isWaiting) => {
+        setWaitingByChatUuid((prevWaitingByChatUuid) => ({
+            ...prevWaitingByChatUuid,
+            [chatUuid]: isWaiting,
+        }))
+    }, [])
+
     const handleInputChange = useCallback(
         (event) => {
             setInputValue(event.target.value)
@@ -28,6 +43,10 @@ function useChatState({
         await addNotification('You need to turn on VPN')
     }, [addNotification])
     const updateTextareaHeight = useCallback(() => {
+        if (!textareaRef.current || !chatBodyRef.current) {
+            return
+        }
+
         textareaRef.current.style.height = 'auto'
         const maxHeight = Math.max(200, window.screen.height * 0.1)
         let newHeight = textareaRef.current.scrollHeight + 2
@@ -42,25 +61,29 @@ function useChatState({
 
     useEffect(() => {
         const rpcClient = window.rpcClient
-        rpcClient.on('process_message', async ([message]) => {
-            if (message.type === 'message') {
-                await setMessages((messages) => [...messages, message])
+        const handleProcessMessage = async ([message]) => {
+            const messageChatUuid = message.chat_uuid
 
-                if (userInteractionTrigger) {
-                    setUserInteractionTrigger(false)
+            if (message.type === 'message') {
+                setMessages((messages) => [...messages, message], messageChatUuid)
+
+                if (messageChatUuid === activeChatRef.current?.uuid && userInteractionTriggerRef.current) {
+                    userInteractionTriggerRef.current = false
                     setNeedToScrollChat(true)
                 }
             } else if (message.type === 'action') {
                 if (message.name === 'set_chat_status') {
-                    await updateMessangerState(message.payload)
+                    await updateMessengerState({...message.payload, chatUuid: messageChatUuid})
                 }
             }
-        })
+        }
+
+        rpcClient.on('process_message', handleProcessMessage)
 
         return () => {
-            rpcClient.off('process_message')
+            rpcClient.off('process_message', handleProcessMessage)
         }
-    }, [setNeedToScrollChat, updateMessangerState, userInteractionTrigger, chatState, setMessages, setUserInteractionTrigger, processRpcError])
+    }, [setNeedToScrollChat, updateMessengerState, setMessages])
 
     useEffect(() => {
         updateTextareaHeight()
@@ -70,45 +93,54 @@ function useChatState({
         console.log('sendMessage')
         const rpcClient = window.rpcClient
         const message = inputValue.trim()
+        const chatUuid = activeChat?.uuid
+
+        if (!chatUuid) {
+            await addNotification('Open a chat before sending a message.')
+            return
+        }
 
         if (!message) {
             return
         }
 
-        setIsWaitingAnswer(true)
+        setChatWaiting(chatUuid, true)
         setInputValue('')
-        textareaRef.current.focus()
+        textareaRef.current?.focus()
 
-        if (await needToTurnOnVPN({addNotification})) {
-            await showMsgAboutVPN()
-            setInputValue(message)
-            setIsWaitingAnswer(false)
-            return
+        try {
+            if (await needToTurnOnVPN({addNotification})) {
+                await showMsgAboutVPN()
+                setInputValue(message)
+                return
+            }
+
+            const preparedMessage = {
+                uuid: uuid.v4(),
+                chat_uuid: chatUuid,
+                from: 'user',
+                body: {
+                    content: message,
+                    attachments: attachedFiles.map((attachedFile) => attachedFile.id),
+                },
+                __ui__: {
+                    attachments: attachedFiles,
+                },
+            }
+
+            setMessages((messages) => [...messages, preparedMessage], chatUuid)
+
+            userInteractionTriggerRef.current = true
+            setNeedToScrollChat(true)
+
+            await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
+
+            await clearFiles()
+        } finally {
+            setChatWaiting(chatUuid, false)
         }
-
-        const preparedMessage = {
-            uuid: uuid.v4(),
-            chat_uuid: activeChat.uuid,
-            from: 'user',
-            body: {
-                content: message,
-                attachments: attachedFiles.map((attachedFile) => attachedFile.id),
-            },
-            __ui__: {
-                attachments: attachedFiles,
-            },
-        }
-
-        await setMessages((messages) => [...messages, preparedMessage])
-
-        setUserInteractionTrigger(true)
-        setNeedToScrollChat(true)
-
-        await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
-
-        await clearFiles()
-        setIsWaitingAnswer(false)
     }, [
+        activeChat,
         processRpcError,
         setNeedToScrollChat,
         addNotification,
@@ -117,37 +149,52 @@ function useChatState({
         attachedFiles,
         showMsgAboutVPN,
         clearFiles,
-        setUserInteractionTrigger,
         setMessages,
-        setIsWaitingAnswer,
+        setChatWaiting,
     ])
 
     const deleteMessage = useCallback(
         async (messageUuid) => {
             console.log(`deleteMessage ${messageUuid}`)
             const rpcClient = window.rpcClient
-            setIsWaitingAnswer(true)
-            await rpcClient.call('delete_message', [messageUuid]).catch(processRpcError)
-            await setMessages((messages) => messages.filter((message) => message.uuid !== messageUuid))
-            setIsWaitingAnswer(false)
+            const chatUuid = activeChat?.uuid
+
+            if (!chatUuid) {
+                return
+            }
+
+            try {
+                setChatWaiting(chatUuid, true)
+                await rpcClient.call('delete_message', [messageUuid]).catch(processRpcError)
+                setMessages((messages) => messages.filter((message) => message.uuid !== messageUuid), chatUuid)
+            } finally {
+                setChatWaiting(chatUuid, false)
+            }
         },
-        [setMessages, setIsWaitingAnswer, processRpcError]
+        [setMessages, setChatWaiting, processRpcError, activeChat]
     )
 
     const callButtonCallback = useCallback(
         async (callbackPayload) => {
             const rpcClient = window.rpcClient
-            await updateMessangerState({status: 'loading'})
-            const preparedMessage = {uuid: uuid.v4(), from: 'user', body: {callback: callbackPayload}}
+            const chatUuid = activeChat?.uuid
+
+            if (!chatUuid) {
+                return
+            }
+
+            await updateMessengerState({status: 'loading', chatUuid})
+            const preparedMessage = {uuid: uuid.v4(), chat_uuid: chatUuid, from: 'user', body: {callback: callbackPayload}}
             try {
                 const response = await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
-                response && setMessages((prev) => [...prev, response])
+                response && setMessages((prev) => [...prev, response], chatUuid)
             } catch (err) {
                 addNotification('Error processing callback: ' + err)
+            } finally {
+                await updateMessengerState({status: 'idle', chatUuid})
             }
-            await updateMessangerState({status: 'idle'})
         },
-        [processRpcError, setMessages, updateMessangerState, addNotification]
+        [processRpcError, setMessages, updateMessengerState, addNotification, activeChat]
     )
 
     useEffect(() => {
@@ -180,12 +227,11 @@ function useChatState({
         inputValue,
         setInputValue,
         chatState,
-        updateMessangerState,
+        updateMessengerState,
         sendMessage,
         deleteMessage,
         callButtonCallback,
         isWaitingAnswer,
-        setIsWaitingAnswer,
         handleInputChange,
     }
 }

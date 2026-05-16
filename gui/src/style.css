@@ -91,7 +91,8 @@ button,
     /*max-width: 18rem;*/
 }
 
-.chat-header .dropdown .dropdown-menu .dropdown-item:hover, .chat-tabs .dropdown .dropdown-menu .dropdown-item:hover {
+.chat-header .dropdown .dropdown-menu .dropdown-item:hover,
+.chat-tabs .dropdown .dropdown-menu .dropdown-item:hover {
     background: var(--white005);
     color: var(--text-color) !important;
     border: 0;
@@ -127,15 +128,14 @@ button,
     color: var(--text-color);
 }
 
-.chat-header .dropdown .dropdown-menu ,
+.chat-header .dropdown .dropdown-menu,
 .chat-tabs .dropdown .dropdown-menu {
     border: 2px solid var(--white01);
     background: var(--dark-additional-color);
     margin-top: 5px;
 }
 
-.chat-header .btn:active
-.chat-tabs .btn:active {
+.chat-header .btn:active .chat-tabs .btn:active {
     background: var(--white01);
 }
 
@@ -722,9 +722,9 @@ blockquote {
 }
 
 .chat-tab.active {
-    background: var(--white01);
-    color: var(--text-color);
-    font-weight: 500;
+    background: var(--white01) !important;
+    color: var(--text-color) !important;
+    font-weight: 500 !important;
 }
 
 .chat-tab-title {
@@ -804,4 +804,3 @@ blockquote {
 /*    display: block;*/
 /*    !*margin-top: 0; !* remove the gap so it doesn't close *!*!*/
 /*}*/
-

@@ -1,35 +1,64 @@
-import {useCallback, useState} from 'react'
+import {useCallback, useMemo, useState} from 'react'
 import {getTimestampNs} from '../utils'
 
-function useMessengerState() {
-    const [chatState, setChatState] = useState({
-        status: 'idle',
-        text: null,
-        prevText: null,
-        timestamp: 0,
-    })
+const DEFAULT_CHAT_STATE = {
+    status: 'idle',
+    text: null,
+    prevText: null,
+    timestamp: 0,
+}
 
-    const updateMessangerState = useCallback(
-        async ({text, status, timestamp}) => {
-            setChatState((prev) => {
+function useMessengerState({activeChatUuid}) {
+    const [chatStatesByUuid, setChatStatesByUuid] = useState({})
+
+    const chatState = useMemo(
+        () => (activeChatUuid ? (chatStatesByUuid[activeChatUuid] ?? DEFAULT_CHAT_STATE) : DEFAULT_CHAT_STATE),
+        [activeChatUuid, chatStatesByUuid]
+    )
+
+    const updateMessengerState = useCallback(
+        async ({text, status, timestamp, chatUuid} = {}) => {
+            const targetChatUuid = chatUuid ?? activeChatUuid
+
+            if (!targetChatUuid) {
+                return
+            }
+
+            setChatStatesByUuid((prevChatStatesByUuid) => {
+                const prev = prevChatStatesByUuid[targetChatUuid] ?? DEFAULT_CHAT_STATE
                 const newTimestamp = timestamp === undefined ? getTimestampNs() : timestamp
                 const newText = text === undefined ? prev.text : text
                 const newStatus = status === undefined ? prev.status : status
 
                 if (prev.timestamp <= newTimestamp) {
-                    console.log('Chat state:', {timestamp: newTimestamp, text: newText, prevText: prev.text, status: newStatus})
-                    return {timestamp: newTimestamp, text: newText, prevText: prev.text, status: newStatus}
+                    console.log('Chat state:', {
+                        chatUuid: targetChatUuid,
+                        timestamp: newTimestamp,
+                        text: newText,
+                        prevText: prev.text,
+                        status: newStatus,
+                    })
+
+                    return {
+                        ...prevChatStatesByUuid,
+                        [targetChatUuid]: {
+                            timestamp: newTimestamp,
+                            text: newText,
+                            prevText: prev.text,
+                            status: newStatus,
+                        },
+                    }
                 }
 
-                return prev
+                return prevChatStatesByUuid
             })
         },
-        [setChatState]
+        [activeChatUuid]
     )
 
     return {
         chatState,
-        updateMessangerState,
+        updateMessengerState,
     }
 }
 

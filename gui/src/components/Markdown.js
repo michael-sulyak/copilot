@@ -9,7 +9,6 @@ import {darcula as SyntaxHighlighterTheme} from 'react-syntax-highlighter/dist/e
 import {visit} from 'unist-util-visit'
 import mermaid from 'mermaid'
 
-
 function CopyButton({getText, title = 'Copy', className = 'btn btn-sm btn-copy', style}) {
     const [icon, setIcon] = React.useState('copy')
 
@@ -41,14 +40,7 @@ function CopyButton({getText, title = 'Copy', className = 'btn btn-sm btn-copy',
     }
 
     return (
-        <button
-            type="button"
-            className={className}
-            aria-label={title}
-            title={title}
-            onClick={handleClick}
-            style={style}
-        >
+        <button type="button" className={className} aria-label={title} title={title} onClick={handleClick} style={style}>
             <i className={`fa-solid fa-${icon}`}></i>
         </button>
     )
@@ -101,11 +93,8 @@ function MermaidBlock({code}) {
 
     return (
         <div className="mermaid-container" style={{position: 'relative'}}>
-            <div ref={ref}/>
-            <CopyButton
-                getText={() => code}
-                title="Copy Mermaid source"
-            />
+            <div ref={ref} />
+            <CopyButton getText={() => code} title="Copy Mermaid source" />
         </div>
     )
 }
@@ -157,7 +146,7 @@ function Markdown({content}) {
                             if (!code || code === 'undefined' || code === 'null') {
                                 return null
                             }
-                            return <MermaidBlock code={code}/>
+                            return <MermaidBlock code={code} />
                         }
 
                         const raw = Array.isArray(children) ? children.join('') : (children ?? '')
@@ -172,10 +161,7 @@ function Markdown({content}) {
                                     language={language}
                                     style={SyntaxHighlighterTheme}
                                 />
-                                <CopyButton
-                                    getText={() => codeStr}
-                                    title="Copy code"
-                                />
+                                <CopyButton getText={() => codeStr} title="Copy code" />
                             </div>
                         )
                     },

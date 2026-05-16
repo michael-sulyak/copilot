@@ -1,4 +1,4 @@
-import React, {Fragment, useCallback, useEffect, useRef, useState} from 'react'
+import React, {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Card, ToastContainer} from 'react-bootstrap'
 import Header from './components/Header'
 import Message from './components/Message'
@@ -11,25 +11,26 @@ import useFileUpload from './hooks/useFileUpload'
 import useAudioRecording from './hooks/useAudioRecording'
 import useChat from './hooks/useChat'
 import useInput from './hooks/useInput'
-import ChatTabs from "./components/ChatTabs";
-import useActiveChat from "./hooks/useActiveChat";
-
+import ChatTabs from './components/ChatTabs'
+import useActiveChat from './hooks/useActiveChat'
 
 function Messenger() {
     const chatBodyRef = useRef(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
-    const [messages, setMessages] = useState([])
+    const [messagesByChatUuid, setMessagesByChatUuid] = useState({})
     const {notifications, addNotification, removeNotification} = useNotifications()
     useEffect(() => {
         const rpcClient = window.rpcClient
 
-        rpcClient.on('show_notification', (message) => {
+        const handleShowNotification = (message) => {
             addNotification(message)
-        })
+        }
+
+        rpcClient.on('show_notification', handleShowNotification)
 
         return () => {
-            rpcClient.off('show_notification')
+            rpcClient.off('show_notification', handleShowNotification)
         }
     }, [addNotification])
     const processRpcError = useCallback(
@@ -37,32 +38,56 @@ function Messenger() {
             console.error(response)
             await addNotification(`**${response.message}**\n\n${response?.data?.traceback_exception?.slice(-2)}\n\n(See logs)`)
         },
-        [addNotification],
+        [addNotification]
     )
     const {settings, getSettings} = useSettings({addNotification, processRpcError})
     const {activeChat, setActiveChat} = useActiveChat({settings})
-    const {chatState, updateMessangerState} = useMessengerState()
+    const activeChatUuid = activeChat?.uuid ?? null
+    const messages = useMemo(() => (activeChatUuid ? (messagesByChatUuid[activeChatUuid] ?? []) : []), [activeChatUuid, messagesByChatUuid])
+    const setMessages = useCallback(
+        (updater, chatUuid = activeChatUuid) => {
+            if (!chatUuid) {
+                return
+            }
+
+            setMessagesByChatUuid((prevMessagesByChatUuid) => {
+                const previousMessages = prevMessagesByChatUuid[chatUuid] ?? []
+                const nextMessages = typeof updater === 'function' ? updater(previousMessages) : updater
+
+                return {
+                    ...prevMessagesByChatUuid,
+                    [chatUuid]: nextMessages ?? [],
+                }
+            })
+        },
+        [activeChatUuid]
+    )
+    const removeChatMessages = useCallback((chatUuid) => {
+        setMessagesByChatUuid((prevMessagesByChatUuid) => {
+            if (!prevMessagesByChatUuid[chatUuid]) {
+                return prevMessagesByChatUuid
+            }
+
+            const nextMessagesByChatUuid = {...prevMessagesByChatUuid}
+            delete nextMessagesByChatUuid[chatUuid]
+            return nextMessagesByChatUuid
+        })
+    }, [])
+    const {chatState, updateMessengerState} = useMessengerState({activeChatUuid})
     const {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({
         addNotification,
-        updateMessangerState,
+        updateMessengerState,
     })
-    const {
-        inputValue,
-        setInputValue,
-        sendMessage,
-        deleteMessage,
-        callButtonCallback,
-        isWaitingAnswer,
-        handleInputChange,
-    } = useInput({
+    const {inputValue, setInputValue, sendMessage, deleteMessage, callButtonCallback, isWaitingAnswer, handleInputChange} = useInput({
         textareaRef,
         addNotification,
         attachedFiles,
         clearFiles,
         chatState,
-        updateMessangerState,
+        updateMessengerState,
         chatBodyRef,
         setMessages,
+        processRpcError,
         activeChat,
     })
     const {recordingState, startRecording, stopRecording} = useAudioRecording({
@@ -71,14 +96,14 @@ function Messenger() {
         setInputValue,
         chatState,
         uploadFiles,
-        updateMessangerState,
+        updateMessengerState,
         processRpcError,
     })
     const {openChat, closeChat, clearChat} = useChat({
-        updateMessangerState,
+        updateMessengerState,
         setMessages,
+        removeChatMessages,
         clearFiles,
-        settings,
         getSettings,
         processRpcError,
         activeChat,
@@ -89,25 +114,15 @@ function Messenger() {
 
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
-            <Header
-                settings={settings}
-                clearChat={clearActiveChat}
-                insertText={setInputValue}
-            />
-            
-            <ChatTabs
-                settings={settings}
-                openChat={openChat}
-                closeChat={closeChat}
-                activeChat={activeChat}
-                setActiveChat={setActiveChat}
-            />
+            <Header settings={settings} clearChat={clearActiveChat} insertText={setInputValue} />
+
+            <ChatTabs settings={settings} openChat={openChat} closeChat={closeChat} activeChat={activeChat} setActiveChat={setActiveChat} />
 
             <Card.Body className="chat-body" ref={chatBodyRef}>
                 <div className="chat-body-shadow"></div>
-                {messages.map((message, index) => (
+                {messages.map((message) => (
                     <Message
-                        key={index}
+                        key={message.uuid}
                         message={message}
                         addNotification={addNotification}
                         deleteMessage={deleteMessage}
@@ -120,7 +135,7 @@ function Messenger() {
                 handleInputChange={handleInputChange}
                 inputValue={inputValue}
                 textareaRef={textareaRef}
-                isLoading={isWaitingAnswer || chatState.status === 'loading'}
+                isLoading={!activeChat || isWaitingAnswer || chatState.status === 'loading'}
                 activeChat={activeChat}
                 onFileUpload={onFileUpload}
                 fileInputRef={fileInputRef}
@@ -134,9 +149,9 @@ function Messenger() {
             />
 
             <ToastContainer position="top-center" className="position-fixed">
-                {notifications.map((notification, index) => (
-                    <Fragment key={index}>
-                        <Notification notification={notification} onHide={() => removeNotification(notification.id)}/>
+                {notifications.map((notification) => (
+                    <Fragment key={notification.id}>
+                        <Notification notification={notification} onHide={() => removeNotification(notification.id)} />
                     </Fragment>
                 ))}
             </ToastContainer>

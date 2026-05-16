@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react'
+import React from 'react'
 import {Button, Dropdown} from 'react-bootstrap'
 
 function ChatTabs({settings, openChat, closeChat, activeChat, setActiveChat}) {
@@ -16,10 +16,9 @@ function ChatTabs({settings, openChat, closeChat, activeChat, setActiveChat}) {
             <div className="chat-tabs-scroll">
                 {openedChats.map((chat) => (
                     <Button
-                        active={(activeChat && activeChat.uuid) === chat.uuid}
-                        key={chat.name}
+                        key={chat.uuid}
                         type="button"
-                        className={`chat-tab ${chat.is_active ? 'active' : ''}`}
+                        className={`chat-tab ${(activeChat && activeChat.uuid) === chat.uuid ? 'active' : ''}`}
                         onClick={() => (activeChat && activeChat.uuid) !== chat.uuid && setActiveChat(chat)}
                         title={chat.name}
                     >
@@ -47,17 +46,12 @@ function ChatTabs({settings, openChat, closeChat, activeChat, setActiveChat}) {
                     <Dropdown.Menu>
                         {availableChats.length > 0 ? (
                             availableChats.map((chat) => (
-                                <Dropdown.Item
-                                    key={chat.name}
-                                    onClick={() => openChat(chat.name)}
-                                >
+                                <Dropdown.Item key={chat.name} onClick={() => openChat(chat.name)}>
                                     {chat.name}
                                 </Dropdown.Item>
                             ))
                         ) : (
-                            <Dropdown.Item disabled>
-                                No chats to open
-                            </Dropdown.Item>
+                            <Dropdown.Item disabled>No chats to open</Dropdown.Item>
                         )}
                     </Dropdown.Menu>
                 </Dropdown>
