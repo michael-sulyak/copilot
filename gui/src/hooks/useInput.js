@@ -61,19 +61,34 @@ function useChatState({
 
     useEffect(() => {
         const rpcClient = window.rpcClient
+
         const handleProcessMessage = async ([message]) => {
             const messageChatUuid = message.chat_uuid
+            let messageUpdated = false
 
             if (message.type === 'message') {
-                setMessages((messages) => [...messages, message], messageChatUuid)
+                setMessages((messages) => {
+                    const existingMessageIndex = messages.findIndex((existingMessage) => existingMessage.uuid === message.uuid)
 
-                if (messageChatUuid === activeChatRef.current?.uuid && userInteractionTriggerRef.current) {
+                    if (existingMessageIndex === -1) {
+                        return [...messages, message]
+                    }
+
+                    messageUpdated = true
+
+                    return messages.map((existingMessage) => (existingMessage.uuid === message.uuid ? message : existingMessage))
+                }, messageChatUuid)
+
+                if (!messageUpdated && messageChatUuid === activeChatRef.current?.uuid && userInteractionTriggerRef.current) {
                     userInteractionTriggerRef.current = false
                     setNeedToScrollChat(true)
                 }
             } else if (message.type === 'action') {
                 if (message.name === 'set_chat_status') {
-                    await updateMessengerState({...message.payload, chatUuid: messageChatUuid})
+                    await updateMessengerState({
+                        ...message.payload,
+                        chatUuid: messageChatUuid,
+                    })
                 }
             }
         }
@@ -184,7 +199,12 @@ function useChatState({
             }
 
             await updateMessengerState({status: 'loading', chatUuid})
-            const preparedMessage = {uuid: uuid.v4(), chat_uuid: chatUuid, from: 'user', body: {callback: callbackPayload}}
+            const preparedMessage = {
+                uuid: uuid.v4(),
+                chat_uuid: chatUuid,
+                from: 'user',
+                body: {callback: callbackPayload},
+            }
             try {
                 const response = await rpcClient.call('process_message', [preparedMessage]).catch(processRpcError)
                 response && setMessages((prev) => [...prev, response], chatUuid)

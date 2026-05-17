@@ -12,59 +12,37 @@ from ..llm_chat import Chat
 
 
 class CodeManager(Chat):
-    selected_work_dir: Path
+    selected_work_dir: Path | None = None
     work_dirs: typing.Sequence[str]
     original_tool_names: list[str]
-    tool_names: list[str]
+    connected_tool_names: set[str]
+    welcome_message: Message | None = None
+    files_are_supported = True
 
     def __init__(self, *args, **kwargs) -> None:
         self.work_dirs = kwargs.pop('work_dirs')
         self.original_tool_names = list(kwargs.pop('tools'))
-        self.tool_names = self.original_tool_names.copy()
+        self.connected_tool_names = set(self.original_tool_names)
+        if len(self.work_dirs) == 1:
+            self.selected_work_dir = Path(self.work_dirs[0]).resolve()
+
         super().__init__(*args, **kwargs)
 
     async def get_welcome_message(self) -> Message:
-        if self.tool_names:
-            tools_info = (
-                '\n\nConnected tools:\n'
-                + '\n'.join(f'* `{TOOLS_MAP[tool_name].description.name}`' for tool_name in self.tool_names)
-            )
-        else:
-            tools_info = '\n\nNo tools connected.'
-
-        content: str
-
-        if len(self.work_dirs) > 1:
-            content = f'What work directory do you want to use?{tools_info}'
-            buttons = tuple(
-                AnswerBtn(name=f'📁 {work_dir}', callback=f'work_dir:{work_dir}')
-                for work_dir in self.work_dirs
-            )
-        else:
-            self.selected_work_dir = Path(self.work_dirs[0]).resolve()
-            content = (
-                f'Using work directory: `{self.selected_work_dir}`\n'
-                f'(only one available, selected automatically and added the context)'
-                f'{tools_info}'
-            )
-            buttons = (
-                AnswerBtn(name='🗂️ Add context (GIT diff, etc.)', callback='add_context'),
-            )
-
-        buttons += self._gen_buttons_with_additional_tools()
-
-        return Message(content=content, buttons=buttons)
+        await self._gen_welcome_message()
+        assert self.welcome_message is not None
+        return self.welcome_message
 
     async def handle_callback(self, request: Request) -> None:
         if request.callback.startswith('work_dir:'):
             work_dir = Path(request.callback.removeprefix('work_dir:')).resolve()
-            await self._choose_work_dir(work_dir, conversation=request.conversation)
+            self._choose_work_dir(work_dir)
         elif request.callback.startswith('add_tool:'):
             tool_name = request.callback.removeprefix('add_tool:')
-            self.tool_names.append(tool_name)
-            await request.conversation.answer(
-                Message(content=f'✅ Connected tool `{tool_name}`'),
-            )
+            self.connected_tool_names.add(tool_name)
+        elif request.callback.startswith('remove_tool:'):
+            tool_name = request.callback.removeprefix('remove_tool:')
+            self.connected_tool_names.remove(tool_name)
         elif request.callback == 'add_context':
             self._add_context()
             changed_files = get_changed_files(self.selected_work_dir)
@@ -73,18 +51,15 @@ class CodeManager(Chat):
                 Message(content=f'✅ Added context for:\n\n{"\n".join(changed_files_to_show)}'),
             )
 
-    async def _choose_work_dir(self, work_dir: Path, *, conversation: Conversation) -> None:
+        await self._gen_welcome_message()
+        assert self.welcome_message is not None
+        await request.conversation.update_message(self.welcome_message)
+
+    def _choose_work_dir(self, work_dir: Path) -> None:
         self.selected_work_dir = work_dir
 
         if not self.selected_work_dir.exists() or not self.selected_work_dir.is_dir():
             raise ValueError(f'Invalid folder: {self.selected_work_dir}')
-
-        await conversation.answer(Message(
-            content=f'Work directory: `{self.selected_work_dir}`\n\nDo you want to add the diff now?',
-            buttons=(
-                AnswerBtn(name='Yes', callback='add_context'),
-            ),
-        ))
 
     async def _process(self, *, conversation: Conversation, model_params: dict) -> LLMResponse:
         async def logger(text: str) -> None:
@@ -159,13 +134,38 @@ class CodeManager(Chat):
     def _gen_tools(self) -> tuple[FunctionLLMTool, ...]:
         return tuple(
             TOOLS_MAP[tool_name](self.selected_work_dir).describe()
-            for tool_name in self.tool_names
+            for tool_name in self.connected_tool_names
         )
 
     def _gen_buttons_with_additional_tools(self) -> tuple[AnswerBtn, ...]:
-        additional_tools = sorted(set(TOOLS_MAP.keys()) - set(self.tool_names))
-
         return tuple(
-            AnswerBtn(name=f'🔨 Connect tool "{additional_tool}"', callback=f'add_tool:{additional_tool}')
-            for additional_tool in additional_tools
+            AnswerBtn(
+                name= f'✅ Tool "{tool}" (connected)' if tool in self.connected_tool_names else f'❌ Tool "{tool}" (disconnected)',
+                callback=f'remove_tool:{tool}' if tool in self.connected_tool_names else  f'add_tool:{tool}',
+            )
+            for tool in self.original_tool_names
         )
+
+    async def _gen_welcome_message(self) -> None:
+        content: str
+
+        if self.selected_work_dir:
+            content = f'Using Work directory: `{self.selected_work_dir}`'
+            buttons = (
+                AnswerBtn(name='🗂️ Add context (GIT diff, etc.)', callback='add_context'),
+            )
+        else:
+            content = 'What work directory do you want to use?'
+            buttons = tuple(
+                AnswerBtn(name=f'📁 {work_dir}', callback=f'work_dir:{work_dir}')
+                for work_dir in self.work_dirs
+            )
+
+        buttons += self._gen_buttons_with_additional_tools()
+
+        params: dict[str, typing.Any] = {'content': content, 'buttons': buttons}
+
+        if self.welcome_message:
+            params['uuid'] = self.welcome_message.uuid
+
+        self.welcome_message = Message(**params)

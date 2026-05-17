@@ -214,7 +214,6 @@ class DesktopApp:
             'available_chats': [
                 {
                     'name': name,
-                    'files_are_supported': self._chat_files_are_supported(chat),
                 }
                 for name, chat in self.available_chats_map.items()
             ],
@@ -222,7 +221,7 @@ class DesktopApp:
                 {
                     'uuid': str(opened_chat.uuid),
                     'name': opened_chat.name,
-                    'files_are_supported': self._chat_files_are_supported(opened_chat.chat),
+                    'files_are_supported': opened_chat.chat.files_are_supported,
                 }
                 for opened_chat in self.opened_chats_map.values()
             ],
@@ -276,7 +275,7 @@ class DesktopApp:
         return {
             'uuid': str(opened_chat.uuid),
             'name': opened_chat.name,
-            'files_are_supported': self._chat_files_are_supported(opened_chat.chat),
+            'files_are_supported': opened_chat.chat.files_are_supported,
         }
 
     def finish(self) -> None:
@@ -438,17 +437,3 @@ class DesktopApp:
                 task.cancel()
 
         await asyncio.gather(*tasks, return_exceptions=True)
-
-    @staticmethod
-    def _chat_files_are_supported(chat: typing.Any) -> bool:
-        return bool(
-            getattr(
-                chat,
-                'files_are_supported',
-                getattr(
-                    chat,
-                    'files_supported',
-                    getattr(chat, 'supports_files', False),
-                ),
-            ),
-        )

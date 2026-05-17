@@ -118,8 +118,16 @@ class Conversation:
         output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid))
 
         if isinstance(output_obj, OutputMessage):
+            if output_obj.uuid in self._opened_chat.history:
+                raise RuntimeError('Message already sent')
+
             self._opened_chat.history[output_obj.uuid] = output_obj
 
+        await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
+
+    async def update_message(self, answer: Message) -> None:
+        output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid))
+        self._opened_chat.history[output_obj.uuid] = output_obj
         await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
 
     async def notify(self, text: str) -> None:
