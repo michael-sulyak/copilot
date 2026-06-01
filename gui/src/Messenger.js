@@ -1,4 +1,4 @@
-import React, {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import React, {Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import {Card, ToastContainer} from 'react-bootstrap'
 import Header from './components/Header'
 import Message from './components/Message'
@@ -18,6 +18,10 @@ function Messenger() {
     const chatBodyRef = useRef(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
+    const activeChatUuidRef = useRef(null)
+    const chatScrollPositionsRef = useRef({})
+    const isRestoringChatScrollRef = useRef(false)
+    const resetChatScrollRestorationFrameRef = useRef(null)
     const [messagesByChatUuid, setMessagesByChatUuid] = useState({})
     const {notifications, addNotification, removeNotification} = useNotifications()
     useEffect(() => {
@@ -43,7 +47,74 @@ function Messenger() {
     const {settings, getSettings} = useSettings({addNotification, processRpcError})
     const {activeChat, setActiveChat} = useActiveChat({settings})
     const activeChatUuid = activeChat?.uuid ?? null
+    activeChatUuidRef.current = activeChatUuid
     const messages = useMemo(() => (activeChatUuid ? (messagesByChatUuid[activeChatUuid] ?? []) : []), [activeChatUuid, messagesByChatUuid])
+
+    const saveActiveChatScrollPosition = useCallback((chatUuid = activeChatUuidRef.current) => {
+        if (!chatUuid || !chatBodyRef.current) {
+            return
+        }
+
+        chatScrollPositionsRef.current[chatUuid] = chatBodyRef.current.scrollTop
+    }, [])
+
+    const setActiveChatWithScrollPosition = useCallback(
+        (chat) => {
+            saveActiveChatScrollPosition()
+            setActiveChat(chat)
+        },
+        [saveActiveChatScrollPosition, setActiveChat]
+    )
+
+    const handleChatBodyScroll = useCallback(() => {
+        if (!activeChatUuid || !chatBodyRef.current || isRestoringChatScrollRef.current) {
+            return
+        }
+
+        chatScrollPositionsRef.current[activeChatUuid] = chatBodyRef.current.scrollTop
+    }, [activeChatUuid])
+
+    useLayoutEffect(() => {
+        if (!chatBodyRef.current) {
+            return undefined
+        }
+
+        const restoreChatScrollPosition = () => {
+            if (!chatBodyRef.current) {
+                return
+            }
+
+            const scrollTop = activeChatUuid ? (chatScrollPositionsRef.current[activeChatUuid] ?? 0) : 0
+
+            isRestoringChatScrollRef.current = true
+            chatBodyRef.current.scrollTop = scrollTop
+
+            if (resetChatScrollRestorationFrameRef.current) {
+                window.cancelAnimationFrame(resetChatScrollRestorationFrameRef.current)
+            }
+
+            resetChatScrollRestorationFrameRef.current = window.requestAnimationFrame(() => {
+                isRestoringChatScrollRef.current = false
+                resetChatScrollRestorationFrameRef.current = null
+            })
+        }
+
+        restoreChatScrollPosition()
+        const restoreChatScrollFrame = window.requestAnimationFrame(restoreChatScrollPosition)
+
+        return () => {
+            window.cancelAnimationFrame(restoreChatScrollFrame)
+        }
+    }, [activeChatUuid, messages.length])
+
+    useEffect(() => {
+        return () => {
+            if (resetChatScrollRestorationFrameRef.current) {
+                window.cancelAnimationFrame(resetChatScrollRestorationFrameRef.current)
+            }
+        }
+    }, [])
+
     const setMessages = useCallback(
         (updater, chatUuid = activeChatUuid) => {
             if (!chatUuid) {
@@ -108,18 +179,43 @@ function Messenger() {
         getSettings,
         processRpcError,
         activeChat,
-        setActiveChat,
+        setActiveChat: setActiveChatWithScrollPosition,
     })
 
-    const clearActiveChat = () => activeChat && clearChat(activeChat.uuid)
+    const closeChatWithScrollPositionCleanup = useCallback(
+        async (chatUuid) => {
+            saveActiveChatScrollPosition()
+            await closeChat(chatUuid)
+            delete chatScrollPositionsRef.current[chatUuid]
+        },
+        [closeChat, saveActiveChatScrollPosition]
+    )
+
+    const clearActiveChat = () => {
+        if (!activeChat) {
+            return
+        }
+
+        chatScrollPositionsRef.current[activeChat.uuid] = 0
+        if (chatBodyRef.current) {
+            chatBodyRef.current.scrollTop = 0
+        }
+        clearChat(activeChat.uuid)
+    }
 
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
             <Header settings={settings} clearChat={clearActiveChat} insertText={setInputValue} />
 
-            <ChatTabs settings={settings} openChat={openChat} closeChat={closeChat} activeChat={activeChat} setActiveChat={setActiveChat} />
+            <ChatTabs
+                settings={settings}
+                openChat={openChat}
+                closeChat={closeChatWithScrollPositionCleanup}
+                activeChat={activeChat}
+                setActiveChat={setActiveChatWithScrollPosition}
+            />
 
-            <Card.Body className="chat-body" ref={chatBodyRef}>
+            <Card.Body className="chat-body" ref={chatBodyRef} onScroll={handleChatBodyScroll}>
                 <div className="chat-body-shadow"></div>
                 {messages.map((message) => (
                     <Message
