@@ -5,6 +5,7 @@ function useChat({
     setMessages,
     removeChatMessages,
     clearFiles,
+    settings,
     getSettings,
     processRpcError,
     activeChat,
@@ -39,22 +40,23 @@ function useChat({
     const closeChat = useCallback(
         async (chatUuid) => {
             const rpcClient = window.rpcClient
+            const activeChatIndex = Math.max(0, settings.opened_chats.indexOf(activeChat))
             await updateMessengerState({status: 'loading', text: null, chatUuid})
             await clearFiles()
             await rpcClient.call('close_chat', [chatUuid]).catch(processRpcError)
             removeChatMessages(chatUuid)
             await getSettings({
                 callback: (newSettings) => {
-                    const openedChats = newSettings?.opened_chats ?? []
+                    const openedChats = newSettings.opened_chats
 
                     if (activeChat?.uuid === chatUuid) {
-                        setActiveChat(openedChats[0] ?? null)
+                        setActiveChat(openedChats[Math.min(openedChats.length - 1, activeChatIndex)] ?? null)
                     }
                 },
             })
             await updateMessengerState({status: 'idle', text: null, chatUuid})
         },
-        [updateMessengerState, clearFiles, getSettings, processRpcError, activeChat, setActiveChat, removeChatMessages]
+        [updateMessengerState, clearFiles,settings, getSettings, processRpcError, activeChat, setActiveChat, removeChatMessages]
     )
 
     const clearChat = useCallback(

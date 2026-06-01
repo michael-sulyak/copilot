@@ -724,7 +724,6 @@ blockquote {
 .chat-tab.active {
     background: var(--white01) !important;
     color: var(--text-color) !important;
-    font-weight: 500 !important;
 }
 
 .chat-tab-title {

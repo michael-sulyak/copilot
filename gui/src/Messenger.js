@@ -104,6 +104,7 @@ function Messenger() {
         setMessages,
         removeChatMessages,
         clearFiles,
+        settings,
         getSettings,
         processRpcError,
         activeChat,
