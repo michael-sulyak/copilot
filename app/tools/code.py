@@ -14,6 +14,7 @@ from .files import BaseLLMToolFabric, gen_tool_error
 class RunPythonTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='run_python',
+        showed_name='💻 Run the Python code',
         description=(
             'Run Python code in a Docker container (isolated FS, network disabled, basic resource limits). '
             'Safer than host execution, but not a perfect sandbox.'

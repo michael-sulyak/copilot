@@ -53,6 +53,7 @@ class BaseLLMToolFabric(abc.ABC):
 class ReadFilesTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='read_files',
+        showed_name='📄 File reading',
         description='Read one or more files by relative path inside the provided folder',
         parameters=(
             LLMToolParam(
@@ -175,6 +176,7 @@ class ReadFilesTool(BaseLLMToolFabric):
 class ListFilesTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='list_files',
+        showed_name='📋 File listing',
         description='List files in a directory inside the provided folder',
         parameters=(
             LLMToolParam(
@@ -243,6 +245,7 @@ class ListFilesTool(BaseLLMToolFabric):
 class SearchFilesTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='search_files',
+        showed_name='🔎 File search',
         description='Search text across files inside the provided folder',
         parameters=(
             LLMToolParam(
@@ -385,6 +388,7 @@ class SearchFilesTool(BaseLLMToolFabric):
 class GitDiffTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='git_diff',
+        showed_name='📑 GIT diff',
         description='Show git diff for the provided folder',
         parameters=(),
     )
@@ -430,6 +434,7 @@ class GitDiffTool(BaseLLMToolFabric):
 class EditFilesTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='edit_files',
+        showed_name='📝 File editing',
         description=(
             'Create or overwrite multiple text files inside the provided folder. '
             'Creates parent folders if needed.'

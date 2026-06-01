@@ -272,6 +272,7 @@ class FunctionLLMTool(BaseLLMTool):
     name: str
     description: str
     parameters: tuple[LLMToolParam, ...] | LLMToolParams
+    showed_name: str | None = None
     func: typing.Callable | None = None
 
     def dump(self) -> dict:
@@ -417,9 +418,10 @@ class BaseLLM:
                     response = await cls.config.client.responses.retrieve(response.id)
 
                     if (
-                        (response.status == 'queued' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_QUEUED)
-                        or (
-                        response.status == 'in_progress' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_IN_PROGRESS)
+                            (
+                                    response.status == 'queued' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_QUEUED)
+                            or (
+                            response.status == 'in_progress' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_IN_PROGRESS)
                     ):
                         raise TaskIsStuck
 
@@ -444,8 +446,8 @@ class BaseLLM:
 
         processing_time = datetime.datetime.now() - started_at
         cost = response.usage and (
-            response.usage.input_tokens * cls.input_price
-            + response.usage.output_tokens * cls.output_price
+                response.usage.input_tokens * cls.input_price
+                + response.usage.output_tokens * cls.output_price
         )
 
         logging.info('Processing time: %s', processing_time)
@@ -517,19 +519,19 @@ class BaseLLM:
 
     @classmethod
     async def execute(
-        cls,
-        *,
-        messages: typing.Sequence[BaseLLMMessage],
-        tools: tuple[FunctionLLMTool, ...],
-        temperature: float | NOTSET = NOTSET,
-        top_p: float | NOTSET = NOTSET,
-        reasoning_effort: str | NOTSET = NOTSET,
-        response_format: type[BaseModel] | NOTSET = NOTSET,
-        max_steps: int = 8,
-        check_total_length: bool = True,
-        stop_when: typing.Callable[[LLMFunctionCall, typing.Any], bool] | None = None,
-        logger: typing.Callable | None = None,
-        memory: BaseMemory | None = None,
+            cls,
+            *,
+            messages: typing.Sequence[BaseLLMMessage],
+            tools: tuple[FunctionLLMTool, ...],
+            temperature: float | NOTSET = NOTSET,
+            top_p: float | NOTSET = NOTSET,
+            reasoning_effort: str | NOTSET = NOTSET,
+            response_format: type[BaseModel] | NOTSET = NOTSET,
+            max_steps: int = 8,
+            check_total_length: bool = True,
+            stop_when: typing.Callable[[LLMFunctionCall, typing.Any], bool] | None = None,
+            logger: typing.Callable | None = None,
+            memory: BaseMemory | None = None,
     ) -> LLMResponse:
         """
         Runs the model-tool loop:

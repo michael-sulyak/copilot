@@ -137,20 +137,11 @@ class CodeManager(Chat):
             for tool_name in self.connected_tool_names
         )
 
-    def _gen_buttons_with_additional_tools(self) -> tuple[AnswerBtn, ...]:
-        return tuple(
-            AnswerBtn(
-                name= f'✅ Tool "{tool}" (connected)' if tool in self.connected_tool_names else f'❌ Tool "{tool}" (disconnected)',
-                callback=f'remove_tool:{tool}' if tool in self.connected_tool_names else  f'add_tool:{tool}',
-            )
-            for tool in self.original_tool_names
-        )
-
     async def _gen_welcome_message(self) -> None:
         content: str
 
         if self.selected_work_dir:
-            content = f'Using Work directory: `{self.selected_work_dir}`'
+            content = f'Work directory: `{self.selected_work_dir}`'
             buttons = (
                 AnswerBtn(name='🗂️ Add context (GIT diff, etc.)', callback='add_context'),
             )
@@ -161,7 +152,7 @@ class CodeManager(Chat):
                 for work_dir in self.work_dirs
             )
 
-        buttons += self._gen_buttons_with_additional_tools()
+        buttons += self._gen_buttons_with_tools()
 
         params: dict[str, typing.Any] = {'content': content, 'buttons': buttons}
 
@@ -169,3 +160,17 @@ class CodeManager(Chat):
             params['uuid'] = self.welcome_message.uuid
 
         self.welcome_message = Message(**params)
+
+
+    def _gen_buttons_with_tools(self) -> tuple[AnswerBtn, ...]:
+        buttons = []
+
+        for tool_name in self.original_tool_names:
+            showed_tool_name = TOOLS_MAP[tool_name].description.showed_name or TOOLS_MAP[tool_name].description.name
+
+            buttons.append(AnswerBtn(
+                name= f'✅ Tool "{showed_tool_name}" (connected)' if tool_name in self.connected_tool_names else f'❌ Tool "{showed_tool_name}" (disconnected)',
+                callback=f'remove_tool:{tool_name}' if tool_name in self.connected_tool_names else  f'add_tool:{tool_name}',
+            ))
+
+        return tuple(buttons)

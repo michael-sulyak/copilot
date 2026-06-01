@@ -42,7 +42,6 @@ def create_chat(chat_data: dict) -> tuple[str, LazyChat | BaseChat]:
         profile_slug = chat_data.get('profile')
         profile = PROFILES.get(profile_slug)
         memory_data = chat_data.get('memory', {})
-        memory = Memory(**memory_data)
         model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         files_supported = chat_data.get('files_supported', False)
         tools = tuple(
@@ -52,7 +51,7 @@ def create_chat(chat_data: dict) -> tuple[str, LazyChat | BaseChat]:
 
         return name, LazyChat(lambda: Chat(
             profile=profile,
-            memory=memory,
+            memory=Memory(**memory_data),
             model=model,
             files_are_supported=files_supported,
             tools=tools,
@@ -86,7 +85,6 @@ def create_chat(chat_data: dict) -> tuple[str, LazyChat | BaseChat]:
         profile_slug = chat_data.get('profile')
         profile = PROFILES.get(profile_slug)
         memory_data = chat_data.get('memory', {})
-        memory = Memory(**memory_data)
         model = AVAILABLE_LLM_MODELS_MAP[model_name]()
         files_supported = chat_data.get('files_supported', False)
         work_dirs = chat_data.get('work_dirs', [])
@@ -94,7 +92,7 @@ def create_chat(chat_data: dict) -> tuple[str, LazyChat | BaseChat]:
 
         return name, LazyChat(lambda: CodeManager(
             profile=profile,
-            memory=memory,
+            memory= Memory(**memory_data),
             model=model,
             files_are_supported=files_supported,
             work_dirs=work_dirs,
