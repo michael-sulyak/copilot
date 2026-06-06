@@ -5,11 +5,11 @@ import subprocess
 import typing
 from pathlib import Path
 
+from .additional_utils import gen_tool_error, suggest_similar_paths
+from .file_system import FileSystem
 from ..models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMToolParam, LLMToolParams
 from ..models.openai.constants import LLMToolParamTypes
 from ..utils.common import gen_optimized_json
-from .additional_utils import gen_tool_error, suggest_similar_paths
-from .file_system import FileSystem
 
 
 class BaseLLMToolFabric(abc.ABC):
@@ -97,7 +97,7 @@ class ReadFilesTool(BaseLLMToolFabric):
 
             except FileNotFoundError:
                 if candidates_cache is None:
-                    # Suggest only allowed (non-ignored) files
+                    # Suggest only allowed non-ignored files.
                     candidates_cache = self.fs.list_files('.', recursive=True)
 
                 suggestions = suggest_similar_paths(path_str, candidates_cache, limit=10)
@@ -277,11 +277,11 @@ class SearchFilesTool(BaseLLMToolFabric):
         self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(
-        self,
-        *,
-        queries: typing.Sequence[str],
-        path: str = '.',
-        use_regex: bool = False,
+            self,
+            *,
+            queries: typing.Sequence[str],
+            path: str = '.',
+            use_regex: bool = False,
     ) -> str:
         if not queries:
             return gen_tool_error(
@@ -437,7 +437,8 @@ class EditFilesTool(BaseLLMToolFabric):
         showed_name='📝 File editing',
         description=(
             'Create or overwrite multiple text files inside the provided folder. '
-            'Creates parent folders if needed.'
+            'Creates parent folders if needed. '
+            'For efficient partial edits, prefer the edit_file_blocks tool.'
         ),
         parameters=(
             LLMToolParam(
@@ -454,15 +455,12 @@ class EditFilesTool(BaseLLMToolFabric):
                         LLMToolParam(
                             name='content',
                             type=LLMToolParamTypes.STRING,
-                            description='Single file content (default: empty)',
+                            description='Single file content',
                             required=True,
                         ),
                     ),
                 ),
-                description=(
-                    'List of files to create. '
-                    'Each item must contain `path` and optional `content`.'
-                ),
+                description='List of files to create or overwrite.',
                 required=True,
             ),
             LLMToolParam(
@@ -484,11 +482,11 @@ class EditFilesTool(BaseLLMToolFabric):
         self.fs = FileSystem(Path(work_dir).resolve())
 
     def run(
-        self,
-        *,
-        files: typing.Sequence[dict],
-        overwrite: bool = False,
-        encoding: str = 'utf-8',
+            self,
+            *,
+            files: typing.Sequence[dict],
+            overwrite: bool = False,
+            encoding: str = 'utf-8',
     ) -> str:
         if not files:
             return gen_tool_error(
@@ -515,7 +513,7 @@ class EditFilesTool(BaseLLMToolFabric):
                         'status': 'error',
                         'error': {
                             'type': 'InvalidItem',
-                            'message': 'Item must be an object with `path` and optional `content`',
+                            'message': 'Item must be an object with `path` and `content`',
                         },
                     },
                 )
@@ -532,6 +530,20 @@ class EditFilesTool(BaseLLMToolFabric):
                         'error': {
                             'type': 'MissingPath',
                             'message': 'Missing `path`',
+                        },
+                    },
+                )
+                continue
+
+            if not isinstance(content, str):
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidContent',
+                            'message': '`content` must be a string',
                         },
                     },
                 )
@@ -554,11 +566,11 @@ class EditFilesTool(BaseLLMToolFabric):
             try:
                 self.fs.write_text(
                     path,
-                    content or '',
+                    content,
                     overwrite=bool(overwrite),
                     encoding=encoding,
                 )
-                size = len((content or '').encode(encoding, errors='ignore'))
+                size = len(content.encode(encoding))
                 results.append(
                     {
                         'index': i,
@@ -578,6 +590,30 @@ class EditFilesTool(BaseLLMToolFabric):
                         'error': {
                             'type': 'AlreadyExists',
                             'message': 'File already exists and overwrite is false',
+                        },
+                    },
+                )
+            except UnicodeEncodeError as e:
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'EncodingError',
+                            'message': str(e),
+                        },
+                    },
+                )
+            except LookupError as e:
+                results.append(
+                    {
+                        'index': i,
+                        'path': path,
+                        'status': 'error',
+                        'error': {
+                            'type': 'InvalidEncoding',
+                            'message': str(e),
                         },
                     },
                 )
@@ -703,24 +739,45 @@ class CreateFolderTool(BaseLLMToolFabric):
             )
 
 
-class ApplyDiffsTool(BaseLLMToolFabric):
-    class PatchApplyError(RuntimeError):
-        pass
+class EditFileBlocksTool(BaseLLMToolFabric):
+    class EditApplyError(RuntimeError):
+        def __init__(self, error_type: str, message: str) -> None:
+            super().__init__(message)
+            self.error_type = error_type
+            self.message = message
 
-    _UNIFIED_HUNK_RE = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@')
+    _OP_ENUM = (
+        'create',
+        'overwrite',
+        'replace',
+        'delete',
+        'insert_before',
+        'insert_after',
+        'replace_between',
+        'append',
+        'prepend',
+    )
 
     description = FunctionLLMTool(
-        name='apply_diffs',
+        name='edit_file_blocks',
+        showed_name='✏️ File block editing',
         description=(
-            'Apply unified diffs (patches) to existing text files inside the provided folder.\n\n'
-            'Input format:\n'
-            '- Provide `edits` as a list of objects: `{ "path": "...", "diff": "..." }`.\n'
-            '- Each `diff` must be a *single-file* unified diff containing one or more hunks with `@@` headers.\n'
-            '- Diff headers like `diff --git`, `index`, `---`, `+++` are allowed and ignored.\n\n'
-            'Behavior:\n'
-            '- The tool reads the current file content, applies hunks with strict context matching, then overwrites the file.\n'
-            '- If the file does not exist or the patch does not apply cleanly, the tool returns an error for that item.\n'
-            '- Paths are restricted by the sandbox FileSystem (ignored/protected paths are blocked).\n'
+            'Efficiently edit text files without sending whole file contents.\n\n'
+            'Use structured operations for deterministic edits:\n'
+            '- create: create a new file with full `content`\n'
+            '- overwrite: overwrite or create a file with full `content`\n'
+            '- replace: replace exact `old` text with `new`\n'
+            '- delete: delete exact `old` text\n'
+            '- insert_before: insert `text` before exact `anchor`\n'
+            '- insert_after: insert `text` after exact `anchor`\n'
+            '- replace_between: replace text between `start` and `end` markers with `new`\n'
+            '- append: append `text` to an existing file\n'
+            '- prepend: prepend `text` to an existing file\n\n'
+            'Important rules for LLMs:\n'
+            '- Prefer `replace` with exact old text copied from read_files output.\n'
+            '- Use `expected_replacements` or `expected_anchors` to prevent accidental broad edits.\n'
+            '- If an anchor is not unique, read more context and use a larger exact block.\n'
+            '- The tool validates all edits first. If one edit fails, no files are written.'
         ),
         parameters=(
             LLMToolParam(
@@ -731,24 +788,91 @@ class ApplyDiffsTool(BaseLLMToolFabric):
                         LLMToolParam(
                             name='path',
                             type=LLMToolParamTypes.STRING,
-                            description='Target file path relative to base folder (must already exist)',
+                            description='Target file path relative to base folder',
                             required=True,
                         ),
                         LLMToolParam(
-                            name='diff',
+                            name='op',
                             type=LLMToolParamTypes.STRING,
-                            description='Unified diff for that file (must contain @@ hunk headers)',
+                            enum=_OP_ENUM,
+                            description='Operation to perform',
                             required=True,
+                        ),
+                        LLMToolParam(
+                            name='old',
+                            type=LLMToolParamTypes.STRING,
+                            description='Exact old text for replace or delete',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='new',
+                            type=LLMToolParamTypes.STRING,
+                            description='New text for replace or replace_between',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='anchor',
+                            type=LLMToolParamTypes.STRING,
+                            description='Exact anchor for insert_before or insert_after',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='text',
+                            type=LLMToolParamTypes.STRING,
+                            description='Text for insert_before, insert_after, append, or prepend',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='start',
+                            type=LLMToolParamTypes.STRING,
+                            description='Start marker for replace_between',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='end',
+                            type=LLMToolParamTypes.STRING,
+                            description='End marker for replace_between',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='content',
+                            type=LLMToolParamTypes.STRING,
+                            description='Full file content for create or overwrite',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='expected_replacements',
+                            type=LLMToolParamTypes.STRING,
+                            description='Optional positive integer or numeric string. Default: 1',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='expected_anchors',
+                            type=LLMToolParamTypes.STRING,
+                            description='Optional positive integer or numeric string. Default: 1',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='expected_sections',
+                            type=LLMToolParamTypes.STRING,
+                            description='Optional positive integer or numeric string for replace_between. Default: 1',
+                            required=False,
+                        ),
+                        LLMToolParam(
+                            name='include_markers',
+                            type=LLMToolParamTypes.BOOLEAN,
+                            description='For replace_between: replace markers too. Default: false',
+                            required=False,
                         ),
                     ),
                 ),
-                description='List of patch operations: each item contains `path` and `diff`',
+                description='List of structured file edit operations',
                 required=True,
             ),
             LLMToolParam(
                 name='encoding',
                 type=LLMToolParamTypes.STRING,
-                description='Text encoding for reading/writing (default: utf-8)',
+                description='Text encoding for reading/writing. Default: utf-8',
                 required=False,
             ),
         ),
@@ -757,337 +881,680 @@ class ApplyDiffsTool(BaseLLMToolFabric):
     def __init__(self, work_dir: Path) -> None:
         self.fs = FileSystem(Path(work_dir).resolve())
 
-    def _detect_eol(self, text: str) -> str:
-        return '\r\n' if '\r\n' in (text or '') else '\n'
+    def _validate_file_path(self, path: typing.Any) -> tuple[str, Path]:
+        if not isinstance(path, str) or not path:
+            raise self.EditApplyError('MissingPath', 'Missing `path`')
 
-    def _apply_unified_diff_to_text(self, original: str, diff_text: str) -> str:
-        if diff_text is None:
-            raise self.PatchApplyError('Diff is empty')
+        if path.endswith(('/', '\\')):
+            raise self.EditApplyError('InvalidPath', 'Path looks like a folder, not a file')
 
-        diff_lines = (diff_text or '').splitlines()
-        if not diff_lines:
-            raise self.PatchApplyError('Diff is empty')
+        abs_p = self.fs.resolve(path)
+        rel = self.fs.to_rel_posix(abs_p)
+        self.fs.assert_allowed(rel, is_dir=False, for_write=True)
 
-        eol = self._detect_eol(original)
-        orig_lines = (original or '').splitlines()
+        return rel, abs_p
 
-        out: list[str] = []
-        idx = 0
-
-        in_hunk = False
-        hunk_seen = False
-
-        expected_old_count: int | None = None
-        expected_new_count: int | None = None
-        seen_old = 0
-        seen_new = 0
-
-        def finish_hunk_if_any() -> None:
-            nonlocal expected_old_count, expected_new_count, seen_old, seen_new, in_hunk
-            if not in_hunk:
-                return
-
-            if expected_old_count is not None and seen_old != expected_old_count:
-                raise self.PatchApplyError(
-                    f'Hunk old-count mismatch: expected {expected_old_count}, saw {seen_old}',
-                )
-            if expected_new_count is not None and seen_new != expected_new_count:
-                raise self.PatchApplyError(
-                    f'Hunk new-count mismatch: expected {expected_new_count}, saw {seen_new}',
-                )
-
-            expected_old_count = None
-            expected_new_count = None
-            seen_old = 0
-            seen_new = 0
-            in_hunk = False
-
-        for line in diff_lines:
-            m = self._UNIFIED_HUNK_RE.match(line)
-            if m:
-                finish_hunk_if_any()
-
-                hunk_seen = True
-                in_hunk = True
-
-                old_start = int(m.group(1))
-                old_count = int(m.group(2) or '1')
-                new_count = int(m.group(4) or '1')
-
-                expected_old_count = old_count
-                expected_new_count = new_count
-                seen_old = 0
-                seen_new = 0
-
-                target = max(0, old_start - 1)
-
-                if target < idx:
-                    raise self.PatchApplyError(
-                        f'Hunk applies before current position: target={target} idx={idx}',
-                    )
-                if target > len(orig_lines):
-                    raise self.PatchApplyError(
-                        f'Hunk start beyond end of file: target={target} file_lines={len(orig_lines)}',
-                    )
-
-                out.extend(orig_lines[idx:target])
-                idx = target
-                continue
-
-            if not in_hunk:
-                if (
-                    line.startswith('diff ')
-                    or line.startswith('index ')
-                    or line.startswith('--- ')
-                    or line.startswith('+++ ')
-                ):
-                    continue
-                continue
-
-            if not line:
-                raise self.PatchApplyError('Invalid diff: empty line inside hunk')
-
-            op = line[0]
-            payload = line[1:]
-
-            if op == ' ':
-                if idx >= len(orig_lines):
-                    raise self.PatchApplyError(
-                        f'Context line beyond EOF at original index {idx}: {payload!r}',
-                    )
-                if orig_lines[idx] != payload:
-                    raise self.PatchApplyError(
-                        'Context mismatch\n'
-                        f'- At original line: {idx + 1}\n'
-                        f'- Expected: {payload!r}\n'
-                        f'- Found:    {orig_lines[idx]!r}\n',
-                    )
-                out.append(payload)
-                idx += 1
-                seen_old += 1
-                seen_new += 1
-
-            elif op == '-':
-                if idx >= len(orig_lines):
-                    raise self.PatchApplyError(
-                        f'Removal beyond EOF at original index {idx}: {payload!r}',
-                    )
-                if orig_lines[idx] != payload:
-                    raise self.PatchApplyError(
-                        'Removal mismatch\n'
-                        f'- At original line: {idx + 1}\n'
-                        f'- Expected remove: {payload!r}\n'
-                        f'- Found:           {orig_lines[idx]!r}\n',
-                    )
-                idx += 1
-                seen_old += 1
-
-            elif op == '+':
-                out.append(payload)
-                seen_new += 1
-
-            elif op == '\\':
-                continue
-
-            else:
-                raise self.PatchApplyError(f'Invalid hunk operation {op!r} in line: {line!r}')
-
-        finish_hunk_if_any()
-
-        if not hunk_seen:
-            raise self.PatchApplyError('No hunks found in diff (missing @@ -a,b +c,d @@ headers)')
-
-        out.extend(orig_lines[idx:])
-
-        had_trailing_newline = (original or '').endswith('\n') or (original or '').endswith('\r\n')
-        new_text = eol.join(out)
-        if had_trailing_newline and (new_text != '' or (original or '') != ''):
-            new_text += eol
-
-        return new_text
-
-    def run(
-        self,
-        *,
-        edits: typing.Sequence[dict],
-        encoding: str = 'utf-8',
+    def _get_str_field(
+            self,
+            spec: dict[str, typing.Any],
+            field: str,
+            *,
+            default: str = '',
+            allow_empty: bool = True,
+            error_type: str = 'InvalidField',
     ) -> str:
-        if not edits:
-            return gen_tool_error(
-                tool=self.description.name,
-                error_type='InvalidArguments',
-                message='`edits` list is empty',
+        value = spec.get(field, default)
+
+        if value is None:
+            value = default
+
+        if not isinstance(value, str):
+            raise self.EditApplyError(error_type, f'`{field}` must be a string')
+
+        if not allow_empty and value == '':
+            raise self.EditApplyError(error_type, f'`{field}` must be a non-empty string')
+
+        return value
+
+    def _parse_positive_int(
+            self,
+            value: typing.Any,
+            *,
+            default: int,
+            field: str,
+    ) -> int:
+        if value is None:
+            return default
+
+        if isinstance(value, bool):
+            raise self.EditApplyError(
+                'InvalidCount',
+                f'`{field}` must be a positive integer, not a boolean',
             )
 
-        if isinstance(edits, (str, bytes)):
+        if isinstance(value, int):
+            parsed = value
+        elif isinstance(value, str) and value.strip().isdigit():
+            parsed = int(value.strip())
+        else:
+            raise self.EditApplyError(
+                'InvalidCount',
+                f'`{field}` must be a positive integer or numeric string',
+            )
+
+        if parsed < 1:
+            raise self.EditApplyError(
+                'InvalidCount',
+                f'`{field}` must be greater than or equal to 1',
+            )
+
+        return parsed
+
+    def _parse_bool(
+            self,
+            value: typing.Any,
+            *,
+            default: bool,
+            field: str,
+    ) -> bool:
+        if value is None:
+            return default
+
+        if isinstance(value, bool):
+            return value
+
+        raise self.EditApplyError(
+            'InvalidBoolean',
+            f'`{field}` must be a boolean',
+        )
+
+    def _replace_between(
+            self,
+            *,
+            text: str,
+            start: str,
+            end: str,
+            new: str,
+            include_markers: bool,
+            expected_sections: int,
+    ) -> str:
+        out: list[str] = []
+        pos = 0
+        count = 0
+
+        while True:
+            start_index = text.find(start, pos)
+            if start_index == -1:
+                break
+
+            after_start = start_index + len(start)
+            end_index = text.find(end, after_start)
+
+            if end_index == -1:
+                raise self.EditApplyError(
+                    'EndMarkerNotFound',
+                    'End marker was not found after start marker',
+                )
+
+            count += 1
+
+            if include_markers:
+                out.append(text[pos:start_index])
+                out.append(new)
+                pos = end_index + len(end)
+            else:
+                out.append(text[pos:after_start])
+                out.append(new)
+                pos = end_index
+
+        out.append(text[pos:])
+
+        if count != expected_sections:
+            raise self.EditApplyError(
+                'SectionCountMismatch',
+                f'Expected {expected_sections} section(s), but found {count}',
+            )
+
+        return ''.join(out)
+
+    def _failed_response(
+            self,
+            *,
+            requested: int,
+            prepared_results: list[dict[str, typing.Any]],
+            index: int,
+            path: typing.Any,
+            error_type: str,
+            message: str,
+            written: int = 0,
+    ) -> str:
+        error_item: dict[str, typing.Any] = {
+            'index': index,
+            'status': 'error',
+            'error': {
+                'type': error_type,
+                'message': message,
+            },
+        }
+
+        if isinstance(path, str) and path:
+            error_item['path'] = path
+
+        return gen_optimized_json(
+            {
+                'ok': False,
+                'tool': self.description.name,
+                'summary': {
+                    'requested': requested,
+                    'prepared': len(prepared_results),
+                    'written': written,
+                    'errors': 1,
+                },
+                'results': prepared_results + [error_item],
+            },
+        )
+
+    def run(
+            self,
+            *,
+            edits: typing.Sequence[dict],
+            encoding: str = 'utf-8',
+    ) -> str:
+        if edits is None or isinstance(edits, (str, bytes)):
             return gen_tool_error(
                 tool=self.description.name,
                 error_type='InvalidArguments',
                 message='`edits` must be an array of objects',
             )
 
-        results: list[dict[str, typing.Any]] = []
-        patched = 0
+        try:
+            edit_list = list(edits)
+        except TypeError:
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`edits` must be an array of objects',
+            )
 
-        for i, spec in enumerate(edits, start=1):
-            if not isinstance(spec, dict):
-                results.append(
-                    {
-                        'index': i,
-                        'status': 'error',
-                        'error': {
-                            'type': 'InvalidItem',
-                            'message': 'Item must be an object with `path` and `diff`',
-                        },
-                    },
-                )
-                continue
+        if not edit_list:
+            return gen_tool_error(
+                tool=self.description.name,
+                error_type='InvalidArguments',
+                message='`edits` list is empty',
+            )
 
-            path = (spec or {}).get('path')
-            diff = (spec or {}).get('diff')
+        requested = len(edit_list)
 
-            if not path:
-                results.append(
-                    {
-                        'index': i,
-                        'status': 'error',
-                        'error': {
-                            'type': 'MissingPath',
-                            'message': 'Missing `path`',
-                        },
-                    },
-                )
-                continue
-            if diff is None:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'MissingDiff',
-                            'message': 'Missing `diff`',
-                        },
-                    },
-                )
-                continue
-            if path.endswith(('/', '\\')):
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'InvalidPath',
-                            'message': 'Path looks like a folder, not a file',
-                        },
-                    },
-                )
-                continue
+        originals: dict[str, str | None] = {}
+        texts: dict[str, str] = {}
+        prepared_results: list[dict[str, typing.Any]] = []
+
+        def load_existing_file(rel: str, abs_p: Path, path_for_errors: typing.Any) -> str:
+            if rel in texts:
+                return texts[rel]
+
+            if not abs_p.exists():
+                raise FileNotFoundError(str(path_for_errors))
+
+            if abs_p.is_dir():
+                raise IsADirectoryError(str(path_for_errors))
+
+            original = self.fs.read_text(rel, encoding=encoding)
+            originals[rel] = original
+            texts[rel] = original
+
+            return original
+
+        def set_file_text(rel: str, content: str, original: str | None) -> None:
+            if rel not in originals:
+                originals[rel] = original
+
+            texts[rel] = content
+
+        for index, spec in enumerate(edit_list, start=1):
+            path: typing.Any = None
 
             try:
-                abs_p = self.fs.resolve(path)
-                rel = self.fs.to_rel_posix(abs_p)
-                self.fs.assert_allowed(rel, is_dir=False, for_write=True)
+                if not isinstance(spec, dict):
+                    raise self.EditApplyError(
+                        'InvalidItem',
+                        'Edit item must be an object',
+                    )
 
-                original = self.fs.read_text(path, encoding=encoding)
-                new_text = self._apply_unified_diff_to_text(original, diff)
+                path = spec.get('path')
+                rel, abs_p = self._validate_file_path(path)
 
-                self.fs.write_text(path, new_text, overwrite=True, encoding=encoding)
-                size = len(new_text.encode(encoding, errors='ignore'))
-                results.append(
+                op = spec.get('op')
+
+                if not isinstance(op, str) or not op.strip():
+                    raise self.EditApplyError(
+                        'MissingOperation',
+                        f'Missing `op`. Use one of: {", ".join(self._OP_ENUM)}',
+                    )
+
+                op = op.strip().lower()
+
+                if op not in self._OP_ENUM:
+                    raise self.EditApplyError(
+                        'UnknownOperation',
+                        f'Unsupported operation: {op}. Use one of: {", ".join(self._OP_ENUM)}',
+                    )
+
+                if op == 'create':
+                    content = self._get_str_field(
+                        spec,
+                        'content',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidContent',
+                    )
+
+                    if rel in texts or abs_p.exists():
+                        raise self.EditApplyError(
+                            'AlreadyExists',
+                            'File already exists',
+                        )
+
+                    set_file_text(rel, content, None)
+
+                elif op == 'overwrite':
+                    content = self._get_str_field(
+                        spec,
+                        'content',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidContent',
+                    )
+
+                    if rel in texts:
+                        original = originals.get(rel)
+                    elif abs_p.exists():
+                        if abs_p.is_dir():
+                            raise IsADirectoryError(str(path))
+
+                        original = self.fs.read_text(rel, encoding=encoding)
+                    else:
+                        original = None
+
+                    set_file_text(rel, content, original)
+
+                elif op == 'replace':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    old = self._get_str_field(
+                        spec,
+                        'old',
+                        allow_empty=False,
+                        error_type='InvalidOldText',
+                    )
+                    new = self._get_str_field(
+                        spec,
+                        'new',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidNewText',
+                    )
+                    expected = self._parse_positive_int(
+                        spec.get('expected_replacements'),
+                        default=1,
+                        field='expected_replacements',
+                    )
+
+                    actual = text.count(old)
+                    if actual != expected:
+                        raise self.EditApplyError(
+                            'ReplaceCountMismatch',
+                            f'Expected {expected} occurrence(s), but found {actual}',
+                        )
+
+                    texts[rel] = text.replace(old, new, expected)
+
+                elif op == 'delete':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    old = self._get_str_field(
+                        spec,
+                        'old',
+                        allow_empty=False,
+                        error_type='InvalidOldText',
+                    )
+                    expected = self._parse_positive_int(
+                        spec.get('expected_replacements'),
+                        default=1,
+                        field='expected_replacements',
+                    )
+
+                    actual = text.count(old)
+                    if actual != expected:
+                        raise self.EditApplyError(
+                            'DeleteCountMismatch',
+                            f'Expected {expected} occurrence(s), but found {actual}',
+                        )
+
+                    texts[rel] = text.replace(old, '', expected)
+
+                elif op == 'insert_before':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    anchor = self._get_str_field(
+                        spec,
+                        'anchor',
+                        allow_empty=False,
+                        error_type='InvalidAnchor',
+                    )
+                    insert_text = self._get_str_field(
+                        spec,
+                        'text',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidText',
+                    )
+                    expected = self._parse_positive_int(
+                        spec.get('expected_anchors'),
+                        default=1,
+                        field='expected_anchors',
+                    )
+
+                    actual = text.count(anchor)
+                    if actual != expected:
+                        raise self.EditApplyError(
+                            'AnchorCountMismatch',
+                            f'Expected {expected} anchor occurrence(s), but found {actual}',
+                        )
+
+                    texts[rel] = text.replace(anchor, insert_text + anchor, expected)
+
+                elif op == 'insert_after':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    anchor = self._get_str_field(
+                        spec,
+                        'anchor',
+                        allow_empty=False,
+                        error_type='InvalidAnchor',
+                    )
+                    insert_text = self._get_str_field(
+                        spec,
+                        'text',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidText',
+                    )
+                    expected = self._parse_positive_int(
+                        spec.get('expected_anchors'),
+                        default=1,
+                        field='expected_anchors',
+                    )
+
+                    actual = text.count(anchor)
+                    if actual != expected:
+                        raise self.EditApplyError(
+                            'AnchorCountMismatch',
+                            f'Expected {expected} anchor occurrence(s), but found {actual}',
+                        )
+
+                    texts[rel] = text.replace(anchor, anchor + insert_text, expected)
+
+                elif op == 'replace_between':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    start = self._get_str_field(
+                        spec,
+                        'start',
+                        allow_empty=False,
+                        error_type='InvalidStartMarker',
+                    )
+                    end = self._get_str_field(
+                        spec,
+                        'end',
+                        allow_empty=False,
+                        error_type='InvalidEndMarker',
+                    )
+                    new = self._get_str_field(
+                        spec,
+                        'new',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidNewText',
+                    )
+                    expected_sections = self._parse_positive_int(
+                        spec.get('expected_sections'),
+                        default=1,
+                        field='expected_sections',
+                    )
+                    include_markers = self._parse_bool(
+                        spec.get('include_markers'),
+                        default=False,
+                        field='include_markers',
+                    )
+
+                    texts[rel] = self._replace_between(
+                        text=text,
+                        start=start,
+                        end=end,
+                        new=new,
+                        include_markers=include_markers,
+                        expected_sections=expected_sections,
+                    )
+
+                elif op == 'append':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    append_text = self._get_str_field(
+                        spec,
+                        'text',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidText',
+                    )
+
+                    texts[rel] = text + append_text
+
+                elif op == 'prepend':
+                    text = load_existing_file(rel, abs_p, path)
+
+                    prepend_text = self._get_str_field(
+                        spec,
+                        'text',
+                        default='',
+                        allow_empty=True,
+                        error_type='InvalidText',
+                    )
+
+                    texts[rel] = prepend_text + text
+
+                prepared_results.append(
                     {
-                        'index': i,
-                        'path': path,
-                        'status': 'patched',
-                        'bytes': size,
+                        'index': index,
+                        'path': rel,
+                        'op': op,
+                        'status': 'prepared',
                     },
                 )
-                patched += 1
 
+            except self.EditApplyError as e:
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type=e.error_type,
+                    message=e.message,
+                )
             except FileNotFoundError:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'FileNotFound',
-                            'message': 'File must exist before patching',
-                        },
-                    },
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='FileNotFound',
+                    message='File must exist for this operation',
                 )
-            except self.PatchApplyError as e:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'PatchFailed',
-                            'message': str(e),
-                        },
-                    },
+            except IsADirectoryError:
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='IsDirectory',
+                    message='Path is a directory, not a file',
+                )
+            except UnicodeDecodeError as e:
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='EncodingError',
+                    message=str(e),
+                )
+            except LookupError as e:
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='InvalidEncoding',
+                    message=str(e),
                 )
             except PermissionError as e:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'PermissionDenied',
-                            'message': str(e),
-                        },
-                    },
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='PermissionDenied',
+                    message=str(e),
                 )
             except ValueError as e:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'InvalidPath',
-                            'message': str(e),
-                        },
-                    },
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='InvalidPath',
+                    message=str(e),
                 )
             except OSError as e:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'WriteFailed',
-                            'message': str(e),
-                        },
-                    },
-                )
-            except Exception as e:
-                results.append(
-                    {
-                        'index': i,
-                        'path': path,
-                        'status': 'error',
-                        'error': {
-                            'type': 'UnexpectedError',
-                            'message': str(e),
-                        },
-                    },
+                return self._failed_response(
+                    requested=requested,
+                    prepared_results=prepared_results,
+                    index=index,
+                    path=path,
+                    error_type='ReadFailed',
+                    message=str(e),
                 )
 
-        error_count = sum(1 for r in results if r.get('status') != 'patched')
+        changed_files: list[dict[str, typing.Any]] = []
+
+        try:
+            for rel, new_text in texts.items():
+                old_text = originals.get(rel)
+
+                if old_text == new_text:
+                    continue
+
+                changed_files.append(
+                    {
+                        'path': rel,
+                        'status': 'created' if old_text is None else 'modified',
+                        'bytes': len(new_text.encode(encoding)),
+                    },
+                )
+        except UnicodeEncodeError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='EncodingError',
+                message=str(e),
+            )
+        except LookupError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='InvalidEncoding',
+                message=str(e),
+            )
+
+        written = 0
+
+        try:
+            for rel, new_text in texts.items():
+                old_text = originals.get(rel)
+
+                if old_text == new_text:
+                    continue
+
+                self.fs.write_text(rel, new_text, overwrite=True, encoding=encoding)
+                written += 1
+
+        except UnicodeEncodeError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='EncodingError',
+                message=str(e),
+                written=written,
+            )
+        except LookupError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='InvalidEncoding',
+                message=str(e),
+                written=written,
+            )
+        except PermissionError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='PermissionDenied',
+                message=str(e),
+                written=written,
+            )
+        except ValueError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='InvalidPath',
+                message=str(e),
+                written=written,
+            )
+        except OSError as e:
+            return self._failed_response(
+                requested=requested,
+                prepared_results=prepared_results,
+                index=0,
+                path=None,
+                error_type='WriteFailed',
+                message=str(e),
+                written=written,
+            )
+
         return gen_optimized_json(
             {
-                'ok': error_count == 0,
+                'ok': True,
                 'tool': self.description.name,
                 'summary': {
-                    'requested': len(edits),
-                    'patched': patched,
-                    'errors': error_count,
+                    'requested': requested,
+                    'prepared': len(prepared_results),
+                    'changed_files': len(changed_files),
+                    'written': written,
+                    'errors': 0,
                 },
-                'results': results,
+                'results': prepared_results,
+                'changed_files': changed_files,
             },
         )

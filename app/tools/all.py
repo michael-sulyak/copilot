@@ -4,6 +4,7 @@ from .files import (
     ListFilesTool,
     ReadFilesTool,
     SearchFilesTool,
+    EditFileBlocksTool,
 )
 
 
@@ -13,7 +14,7 @@ TOOLS = (
     SearchFilesTool,
     GitDiffTool,
     EditFilesTool,
-    # ApplyDiffsTool,
+    EditFileBlocksTool,
     # CreateFolderTool,
 )
 
