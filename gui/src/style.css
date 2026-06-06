@@ -3,6 +3,7 @@
 
 :root {
     --tabs-height: 2.75rem;
+    --scrollbar-width: 8px;
 }
 
 /* Global Styles */
@@ -21,8 +22,8 @@ body,
 
 /* Scrollbar Styles */
 *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: var(--scrollbar-width);
+    height: var(--scrollbar-width);
 }
 
 *::-webkit-scrollbar-track {
@@ -146,18 +147,33 @@ button,
 
 /* Messenger Body Styles */
 .chat-body {
-    padding: 1.5rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: calc(var(--header-height) + var(--tabs-height) + 1rem) 1.5rem 1.5rem;
     overflow-y: auto;
 }
 
+.chat-body::-webkit-scrollbar-button:vertical:start:decrement {
+    display: block;
+    height: calc(var(--header-height) + var(--tabs-height));
+    background: transparent;
+}
+
+.chat-body::-webkit-scrollbar-button:vertical:end:increment {
+    display: block;
+    height: 0;
+    background: transparent;
+}
+
 .chat-body-shadow {
-    width: 100%;
+    width: calc(100% - var(--scrollbar-width));
     height: 0;
     bottom: 0;
     left: 0;
     box-shadow: 0 0 3rem 3rem var(--secondary-color);
     position: fixed;
     z-index: 1;
+    clip-path: inset(-10rem 0 -10rem -10rem);
 }
 
 /* Messenger Status Styles */
@@ -344,15 +360,6 @@ button,
     max-width: 90%;
     margin-bottom: 1rem;
     animation: 0.2s messageAppearAnimation;
-}
-
-/*.chat-body > .message {*/
-/*    margin-top: calc(var(--header-height) + var(--tabs-height));*/
-/*}*/
-
-.chat-body {
-    padding: calc(var(--header-height) + var(--tabs-height) + 1rem) 1.5rem 1.5rem;
-    overflow-y: auto;
 }
 
 .chat-body > .message ~ .message {
