@@ -60,6 +60,21 @@ button,
     background: var(--secondary-color);
 }
 
+.chat-card::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(var(--header-height) + var(--tabs-height));
+    z-index: 1018;
+    pointer-events: none;
+    background: var(--white001);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--white01);
+}
+
 /* Messenger Header Styles */
 .chat-header {
     width: 100%;
@@ -71,11 +86,8 @@ button,
     position: fixed;
     top: 0;
     z-index: 1020;
-    backdrop-filter: blur(20px);
     background: transparent;
-    /*border-bottom: 1px solid var(--white01);*/
     border-bottom: none !important;
-    background: var(--white001);
 }
 
 .chat-header .logo {
@@ -101,19 +113,26 @@ button,
 
 .chat-header .btn,
 .chat-header .btn:focus,
-.chat-tabs .btn,
-.chat-tabs .btn:focus {
+.chat-tabs .btn:not(.chat-tab),
+.chat-tabs .btn:not(.chat-tab):focus {
     border: 1px solid var(--white01);
     border-radius: var(--box-radius);
-    background: var(--secondary-color);
+    background: transparent;
     color: var(--text-color);
+    box-shadow: none;
 }
 
 .chat-header .btn:hover,
 .chat-header .btn:focus-visible,
-.chat-tabs .btn:hover,
-.chat-tabs .btn:focus-visible {
-    background: var(--white005);
+.chat-header .btn:active,
+.chat-header .btn.show,
+.chat-tabs .btn:not(.chat-tab):hover,
+.chat-tabs .btn:not(.chat-tab):focus-visible,
+.chat-tabs .btn:not(.chat-tab):active,
+.chat-tabs .btn:not(.chat-tab).show {
+    background: transparent;
+    color: var(--text-color);
+    box-shadow: none;
 }
 
 .chat-header .dropdown-item.active,
@@ -136,8 +155,9 @@ button,
     margin-top: 5px;
 }
 
-.chat-header .btn:active .chat-tabs .btn:active {
-    background: var(--white01);
+.chat-header .btn:active,
+.chat-tabs .btn:not(.chat-tab):active {
+    border-color: var(--white025);
 }
 
 .chat-header h2 {
@@ -678,10 +698,9 @@ blockquote {
     width: 100%;
     height: var(--tabs-height);
     z-index: 1019;
-    background: var(--white001);
-    backdrop-filter: blur(20px);
+    background: transparent;
     border-top: 1px solid var(--white01);
-    border-bottom: 1px solid var(--white01);
+    border-bottom: 0;
     display: flex;
     align-items: center;
     overflow: visible;
@@ -700,37 +719,68 @@ blockquote {
 }
 
 .chat-tab {
+    --bs-btn-bg: transparent;
+    --bs-btn-hover-bg: transparent;
+    --bs-btn-active-bg: transparent;
+    --bs-btn-disabled-bg: transparent;
+    --bs-btn-color: var(--text-color);
+    --bs-btn-hover-color: var(--text-color);
+    --bs-btn-active-color: var(--text-color);
+    --bs-btn-disabled-color: var(--text-color);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-focus-shadow-rgb: 0, 0, 0;
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
     white-space: nowrap;
-    border: 1px solid var(--white01);
+    border: 2px solid transparent;
     border-radius: var(--box-radius);
-    background: var(--secondary-color);
+    background: transparent;
+    background-color: transparent;
     color: var(--text-color);
-    padding: 0.35rem 0.55rem 0.35rem 0.75rem;
+    padding: calc(0.35rem - 1px) calc(0.55rem - 1px) calc(0.35rem - 1px) calc(0.75rem - 1px);
     max-width: 14rem;
     min-height: 2rem;
     line-height: 1;
-    box-shadow: none;
+    box-shadow: inset 0 0 0 1px var(--white01);
     transition:
         background var(--small-animation-duration) ease-out,
         border-color var(--small-animation-duration) ease-out,
+        box-shadow var(--small-animation-duration) ease-out,
         opacity var(--small-animation-duration) ease-out;
 }
 
 .chat-tab:hover,
+.chat-tab:active,
 .chat-tab:focus,
-.chat-tab:focus-visible {
-    background: var(--white005);
+.chat-tab:focus-visible,
+.chat-tab.show {
+    background: transparent;
+    background-color: transparent;
     color: var(--text-color);
-    border-color: var(--white01);
-    box-shadow: none;
+    border-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--white025);
 }
 
-.chat-tab.active {
-    background: var(--white01) !important;
+.chat-tabs .chat-tab:active,
+.chat-tabs .chat-tab.show,
+.chat-tabs .chat-tab:first-child:active,
+.chat-tabs :not(.btn-check) + .chat-tab:active {
+    background: transparent !important;
+    background-color: transparent !important;
     color: var(--text-color) !important;
+    border-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--white025);
+}
+
+.chat-tabs .chat-tab.active {
+    border-color: var(--white025);
+    background: transparent !important;
+    background-color: transparent !important;
+    color: var(--text-color) !important;
+    box-shadow: none;
 }
 
 .chat-tab-title {
@@ -760,11 +810,11 @@ blockquote {
 
 .chat-tab-close:hover {
     opacity: 1;
-    background: var(--white01);
+    background: transparent;
 }
 
 .chat-tab-close:active {
-    background: var(--white025);
+    background: transparent;
 }
 
 .chat-tab-plus {

@@ -23,7 +23,7 @@ function useChat({
     const openChat = useCallback(
         async (chatName) => {
             const rpcClient = window.rpcClient
-            await updateMessengerState({status: 'loading', text: null})
+
             await clearFiles()
             await rpcClient.call('open_chat', [chatName]).catch(processRpcError)
             await getSettings({
@@ -32,9 +32,8 @@ function useChat({
                     setActiveChat(openedChats[openedChats.length - 1] ?? null)
                 },
             })
-            await updateMessengerState({status: 'idle', text: null})
         },
-        [updateMessengerState, getSettings, clearFiles, processRpcError, setActiveChat]
+        [getSettings, clearFiles, processRpcError, setActiveChat]
     )
 
     const closeChat = useCallback(

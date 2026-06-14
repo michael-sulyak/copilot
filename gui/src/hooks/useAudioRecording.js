@@ -6,7 +6,7 @@ function useAudioRecording({
     inputValue,
     setInputValue,
     uploadFiles,
-    updateMessangerState: updateMessengerState,
+    updateMessengerState,
     processRpcError,
 }) {
     const [recordingState, setRecordingState] = useState({status: 'off'})
