@@ -9,7 +9,7 @@ from collections import OrderedDict
 import aiohttp_rpc
 from pydantic import BaseModel
 
-from ..desktop_defs import InputMessage, OutputAction, OutputMessage
+from ..desktop_defs import InputMessage, OutputAction, OutputMessage, OutputToolCall
 from ..utils.local_file_storage import File
 from .constants import Actions, Statuses
 
@@ -100,6 +100,22 @@ class Action(BaseAnswer):
         }
 
 
+@dataclasses.dataclass
+class ToolCall(BaseAnswer):
+    __output_class__ = OutputToolCall
+
+    uuid: uuid.UUID = dataclasses.field(default_factory=uuid.uuid4)
+    payload: typing.Any = None
+
+    def to_dict(self) -> dict:
+        return {
+            'uuid': str(self.uuid),
+            'type': 'tool_call',
+            'payload': self.payload,
+            'timestamp': time.time_ns(),
+        }
+
+
 class Conversation:
     """
     A communication bridge between a chat and the DesktopApp, providing
@@ -117,7 +133,7 @@ class Conversation:
     async def answer(self, answer: BaseAnswer) -> None:
         output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid))
 
-        if isinstance(output_obj, OutputMessage):
+        if isinstance(output_obj, (OutputMessage, OutputToolCall,)):
             if output_obj.uuid in self._opened_chat.history:
                 raise RuntimeError('Message already sent')
 

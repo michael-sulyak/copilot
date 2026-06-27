@@ -2,6 +2,7 @@ import React, {Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import {Card, ToastContainer} from 'react-bootstrap'
 import Header from './components/Header'
 import Message from './components/Message'
+import ToolCall from './components/ToolCall'
 import Footer from './components/Footer'
 import Notification from './components/Notification'
 import useNotifications from './hooks/useNotifications'
@@ -217,15 +218,19 @@ function Messenger() {
 
             <Card.Body className="chat-body" ref={chatBodyRef} onScroll={handleChatBodyScroll}>
                 <div className="chat-body-shadow"></div>
-                {messages.map((message) => (
-                    <Message
-                        key={message.uuid}
-                        message={message}
-                        addNotification={addNotification}
-                        deleteMessage={deleteMessage}
-                        callButtonCallback={callButtonCallback}
-                    />
-                ))}
+                {messages.map((message) =>
+                    message.type === 'tool_call' ? (
+                        <ToolCall key={message.uuid} message={message} />
+                    ) : (
+                        <Message
+                            key={message.uuid}
+                            message={message}
+                            addNotification={addNotification}
+                            deleteMessage={deleteMessage}
+                            callButtonCallback={callButtonCallback}
+                        />
+                    )
+                )}
             </Card.Body>
 
             <Footer

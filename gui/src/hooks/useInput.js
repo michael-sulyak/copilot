@@ -66,7 +66,7 @@ function useChatState({
             const messageChatUuid = message.chat_uuid
             let messageUpdated = false
 
-            if (message.type === 'message') {
+            if (message.type === 'message' || message.type === 'tool_call') {
                 setMessages((messages) => {
                     const existingMessageIndex = messages.findIndex((existingMessage) => existingMessage.uuid === message.uuid)
 
@@ -80,7 +80,6 @@ function useChatState({
                 }, messageChatUuid)
 
                 if (!messageUpdated && messageChatUuid === activeChatRef.current?.uuid && userInteractionTriggerRef.current) {
-                    userInteractionTriggerRef.current = false
                     setNeedToScrollChat(true)
                 }
             } else if (message.type === 'action') {
@@ -152,6 +151,7 @@ function useChatState({
 
             await clearFiles()
         } finally {
+            userInteractionTriggerRef.current = false
             setChatWaiting(chatUuid, false)
         }
     }, [

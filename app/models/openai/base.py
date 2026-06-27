@@ -27,10 +27,6 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from pydantic import BaseModel
 
-from ... import config
-from ...memory import BaseMemory, Memory
-from ...utils.common import chunk_generator, gen_optimized_json
-from ...utils.local_file_storage import File
 from .constants import NOTSET, LLMContentTypes, LLMMessageRoles, LLMToolParamTypes
 from .utils import (
     format_tool_chat_message,
@@ -40,6 +36,10 @@ from .utils import (
     process_llm_request_via_old_api,
     serialize_tool_output,
 )
+from ... import config
+from ...memory import BaseMemory, Memory
+from ...utils.common import chunk_generator, gen_optimized_json
+from ...utils.local_file_storage import File
 
 
 @dataclasses.dataclass(frozen=True)
@@ -192,6 +192,83 @@ class LLMFunctionCall(BaseLLMMessage):
         self._cached_dump['dump'] = result
 
         return result
+
+
+class LLMToolCallTracker:
+    call: LLMFunctionCall
+    error: str | None = None
+    result: str | None = None
+    is_done: bool = False
+
+    def __init__(self, *, call: LLMFunctionCall) -> call:
+        self.call = call
+
+    def set_error(self, text: str) -> None:
+        assert not self.is_done
+
+        self.error = text
+        self.is_done = True
+
+    def set_result(self, result: str | None = None) -> None:
+        assert not self.is_done
+
+        self.result = result
+        self.is_done = True
+
+    @property
+    def status(self) -> str:
+        if self.is_done:
+            if self.error is None:
+                return 'done'
+            else:
+                return 'failed'
+
+        return 'in_progress'
+
+    def dump(self) -> dict:
+        return {
+            'tool_name': self.call.name,
+            'status': self.status,
+            'arguments': self.call.raw_args,
+            'result': self.result,
+            'error': self.error,
+        }
+
+    def __str__(self) -> str:
+        return format_tool_chat_message(
+            tool_name=self.call.name,
+            stage=self.stage,
+            arguments=self.call.raw_args,
+            result=self.result,
+            error=self.error,
+        )
+
+
+class LLMToolCallAggregatedTracker:
+    is_done: bool = False
+    _trackers: list[LLMToolCallTracker]
+
+    def __init__(self) -> None:
+        self._trackers = []
+
+    @property
+    def status(self) -> str:
+        if self.is_done:
+            return 'done'
+        else:
+            return 'in_progress'
+
+    def mark_as_done(self) -> None:
+        self.is_done = True
+
+    def add_tracker(self, tracker: LLMToolCallTracker) -> None:
+        self._trackers.append(tracker)
+
+    def dump(self) -> typing.Sequence[dict]:
+        return {
+            'status': self.status,
+            'tool_calls': tuple(tracker.dump() for tracker in self._trackers),
+        }
 
 
 @dataclasses.dataclass(frozen=True)
@@ -557,6 +634,7 @@ class BaseLLM:
             tool.name: tool.func
             for tool in tools
         }
+        aggregated_tracker = LLMToolCallAggregatedTracker()
 
         for step in range(1, max_steps + 1):
             buffer = memory.get_buffer()
@@ -587,14 +665,11 @@ class BaseLLM:
                 for call in step_response.tool_calls:
                     tool_trace.append(call)
 
+                    call_tracker = LLMToolCallTracker(call=call)
+                    aggregated_tracker.add_tracker(call_tracker)
+
                     if logger:
-                        await logger(
-                            format_tool_chat_message(
-                                tool_name=call.name,
-                                stage='call',
-                                arguments=call.raw_args,
-                            ),
-                        )
+                        await logger(aggregated_tracker)
 
                     exec_fn = executors_map.get(call.name)
                     result_value = None
@@ -615,15 +690,10 @@ class BaseLLM:
                             ),
                         )
 
+                        call_tracker.set_error('Tool unavailable or arguments invalid')
+
                         if logger:
-                            await logger(
-                                format_tool_chat_message(
-                                    tool_name=call.name,
-                                    stage='error',
-                                    arguments=call.raw_args,
-                                    error='Tool unavailable or arguments invalid',
-                                ),
-                            )
+                            await logger(aggregated_tracker)
 
                         continue
 
@@ -645,15 +715,10 @@ class BaseLLM:
                             ),
                         )
 
+                        call_tracker.set_error('Unexpected exception while executing tool')
+
                         if logger:
-                            await logger(
-                                format_tool_chat_message(
-                                    tool_name=call.name,
-                                    stage='error',
-                                    arguments=call.raw_args,
-                                    error='Unexpected exception while executing tool',
-                                ),
-                            )
+                            await logger(aggregated_tracker)
                     else:
                         if call.call_id is None:
                             raise openai.OpenAIError(f'No call_id received for tool "{call.name}"')
@@ -665,14 +730,10 @@ class BaseLLM:
                             ),
                         )
 
+                        call_tracker.set_result(result_value)
+
                         if logger:
-                            await logger(
-                                format_tool_chat_message(
-                                    tool_name=call.name,
-                                    stage='result',
-                                    result=result_value,
-                                ),
-                            )
+                            await logger(aggregated_tracker)
 
                     if stop_when and stop_when(call, result_value):
                         final_turn = await cls.process(
@@ -687,6 +748,11 @@ class BaseLLM:
                         )
                         total_cost += final_turn.cost
                         total_tokens += final_turn.total_tokens
+
+                        aggregated_tracker.mark_as_done()
+
+                        if logger:
+                            await logger(aggregated_tracker)
 
                         return LLMResponse(
                             content=final_turn.content,
@@ -720,6 +786,11 @@ class BaseLLM:
                 if response_format is not NOTSET:
                     parsed_content = response_format.model_validate_json(step_response.content)
 
+                aggregated_tracker.mark_as_done()
+
+                if logger:
+                    await logger(aggregated_tracker)
+
                 return LLMResponse(
                     content=step_response.content,
                     parsed_content=parsed_content,
@@ -729,6 +800,11 @@ class BaseLLM:
                     total_tokens=total_tokens,
                     original_response=last_raw_response or step_response.original_response,
                 )
+
+        aggregated_tracker.mark_as_done()
+
+        if logger:
+            await logger(aggregated_tracker)
 
         return LLMResponse(
             content=None,

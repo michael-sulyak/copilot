@@ -61,3 +61,14 @@ class OutputAction(BaseModel):
 
     class Config:
         validate_by_name = True
+
+
+class OutputToolCall(BaseModel):
+    uuid: str
+    chat_uuid: str
+    type_: str = Field(..., alias='type')
+    payload: typing.Any
+    timestamp: float
+
+    class Config:
+        validate_by_name = True

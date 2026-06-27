@@ -1,14 +1,15 @@
 import typing
 from pathlib import Path
 
-from ...models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse
+from ..base import AnswerBtn, Conversation, Message, Request, ToolCall
+from ..llm_chat import Chat
+from ...models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse, \
+    LLMToolCallAggregatedTracker
 from ...models.openai.utils import gen_fake_tool_call_id, serialize_tool_output
 from ...tools.additional_utils import get_changed_files
 from ...tools.all import TOOLS_MAP
 from ...tools.files import GitDiffTool, ReadFilesTool
 from ...utils.common import gen_optimized_json
-from ..base import AnswerBtn, Conversation, Message, Request
-from ..llm_chat import Chat
 
 
 class CodeManager(Chat):
@@ -62,8 +63,20 @@ class CodeManager(Chat):
             raise ValueError(f'Invalid folder: {self.selected_work_dir}')
 
     async def _process(self, *, conversation: Conversation, model_params: dict) -> LLMResponse:
-        async def logger(text: str) -> None:
-            await conversation.answer(Message(content=text))
+        call_tracker_message: ToolCall | None = None
+
+        async def logger(data: str | LLMToolCallAggregatedTracker) -> None:
+            nonlocal call_tracker_message
+
+            if isinstance(data, LLMToolCallAggregatedTracker):
+                if call_tracker_message is None:
+                    call_tracker_message = ToolCall(payload=data.dump())
+                    await conversation.answer(call_tracker_message)
+                else:
+                    call_tracker_message = ToolCall(uuid=call_tracker_message.uuid, payload=data.dump())
+                    await conversation.update_message(call_tracker_message)
+            else:
+                await conversation.answer(Message(content=data))
 
         return await self.model.execute(
             **model_params,
@@ -161,7 +174,6 @@ class CodeManager(Chat):
 
         self.welcome_message = Message(**params)
 
-
     def _gen_buttons_with_tools(self) -> tuple[AnswerBtn, ...]:
         buttons = []
 
@@ -169,8 +181,8 @@ class CodeManager(Chat):
             showed_tool_name = TOOLS_MAP[tool_name].description.showed_name or TOOLS_MAP[tool_name].description.name
 
             buttons.append(AnswerBtn(
-                name= f'✅ Tool "{showed_tool_name}" (connected)' if tool_name in self.connected_tool_names else f'❌ Tool "{showed_tool_name}" (disconnected)',
-                callback=f'remove_tool:{tool_name}' if tool_name in self.connected_tool_names else  f'add_tool:{tool_name}',
+                name=f'✅ Tool "{showed_tool_name}" (connected)' if tool_name in self.connected_tool_names else f'❌ Tool "{showed_tool_name}" (disconnected)',
+                callback=f'remove_tool:{tool_name}' if tool_name in self.connected_tool_names else f'add_tool:{tool_name}',
             ))
 
         return tuple(buttons)

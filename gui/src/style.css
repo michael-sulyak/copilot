@@ -505,6 +505,313 @@ button,
     }
 }
 
+/* Tool call message */
+.tool-call-message {
+    width: min(90%, 56rem);
+    max-width: min(90%, 56rem);
+    margin-right: auto;
+}
+
+.tool-call-card {
+    width: 100%;
+    min-width: 0;
+    padding: 0.9rem 1rem;
+    border-radius: var(--box-radius-2);
+    border-bottom-left-radius: 0;
+    border: 1px solid var(--white01);
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)),
+        var(--dark-additional-color);
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.12);
+}
+
+.tool-call-card.in-progress {
+    border-color: rgba(86, 156, 214, 0.35);
+}
+
+.tool-call-card.failed {
+    border-color: rgba(255, 116, 116, 0.4);
+}
+
+.tool-call-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.85rem;
+}
+
+.tool-call-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    font-weight: 500;
+}
+
+.tool-call-title > span:last-child {
+    min-width: 0;
+}
+
+.tool-call-summary {
+    color: var(--white05);
+    font-size: 0.9rem;
+    text-align: right;
+}
+
+.tool-call-animated-dots::after {
+    content: '';
+    display: inline-block;
+    width: 1.2rem;
+    text-align: left;
+    animation: toolCallDots 1.4s infinite steps(4, end);
+}
+
+@keyframes toolCallDots {
+    0% {
+        content: '';
+    }
+    25% {
+        content: '.';
+    }
+    50% {
+        content: '..';
+    }
+    75%,
+    100% {
+        content: '...';
+    }
+}
+
+.tool-call-pipeline,
+.tool-call-pipeline-empty {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.85rem;
+}
+
+.tool-call-pipeline-empty {
+    color: var(--white05);
+}
+
+.tool-call-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    max-width: 13rem;
+    padding: 0.35rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--white01);
+    background: var(--white005);
+    line-height: 1.1;
+}
+
+.tool-call-step.in-progress {
+    border-color: rgba(86, 156, 214, 0.45);
+    background: rgba(86, 156, 214, 0.12);
+}
+
+.tool-call-step.done {
+    border-color: rgba(102, 187, 106, 0.35);
+    background: rgba(102, 187, 106, 0.1);
+}
+
+.tool-call-step.failed {
+    border-color: rgba(255, 116, 116, 0.45);
+    background: rgba(255, 116, 116, 0.12);
+}
+
+.tool-call-step-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-call-arrow {
+    color: var(--white05);
+    opacity: 0.7;
+}
+
+.tool-call-arrow.in-progress {
+    animation: toolCallArrowPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes toolCallArrowPulse {
+    0%,
+    100% {
+        opacity: 0.25;
+        transform: translateX(0);
+    }
+    50% {
+        opacity: 1;
+        transform: translateX(0.15rem);
+    }
+}
+
+.tool-call-step-spinner {
+    display: inline-block;
+    width: 0.85rem;
+    height: 0.85rem;
+    min-width: 0.85rem;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-top-color: var(--text-color);
+    border-radius: 50%;
+    animation: toolCallSpin 0.8s linear infinite;
+}
+
+@keyframes toolCallSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.tool-call-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--white01);
+    background: var(--white005);
+    color: var(--white05);
+    font-size: 0.8rem;
+    line-height: 1.2;
+}
+
+.tool-call-status-badge.in-progress {
+    color: rgb(157, 207, 255);
+    border-color: rgba(86, 156, 214, 0.45);
+}
+
+.tool-call-status-badge.done {
+    color: rgb(168, 224, 171);
+    border-color: rgba(102, 187, 106, 0.35);
+}
+
+.tool-call-status-badge.failed {
+    color: rgb(255, 177, 177);
+    border-color: rgba(255, 116, 116, 0.45);
+}
+
+.tool-call-details {
+    border-top: 1px solid var(--white01);
+    padding-top: 0.75rem;
+}
+
+.tool-call-details summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--white05);
+    transition: color var(--small-animation-duration) ease-out;
+    user-select: none;
+}
+
+.tool-call-details summary:hover {
+    color: var(--text-color);
+}
+
+.tool-call-details-body {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.tool-call-empty-details,
+.tool-call-waiting-result {
+    color: var(--white05);
+    font-size: 0.9rem;
+}
+
+.tool-call-detail {
+    border-left: 3px solid var(--white01);
+    border-radius: var(--box-radius);
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.tool-call-detail.in-progress {
+    border-left-color: rgba(86, 156, 214, 0.8);
+}
+
+.tool-call-detail.done {
+    border-left-color: rgba(102, 187, 106, 0.75);
+}
+
+.tool-call-detail.failed {
+    border-left-color: rgba(255, 116, 116, 0.8);
+}
+
+.tool-call-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.6rem;
+}
+
+.tool-call-detail-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+    font-weight: 500;
+}
+
+.tool-call-detail-title span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.tool-call-payload-block + .tool-call-payload-block,
+.tool-call-waiting-result {
+    margin-top: 0.6rem;
+}
+
+.tool-call-payload-title {
+    margin-bottom: 0.25rem;
+    color: var(--white05);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.tool-call-payload-block pre {
+    max-height: 22rem;
+    margin: 0;
+    padding: 0.75rem;
+    overflow: auto;
+    border: 1px solid var(--white01);
+    border-radius: var(--box-radius);
+    background: rgba(0, 0, 0, 0.22);
+    color: var(--text-color);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.tool-call-payload-block.error pre {
+    border-color: rgba(255, 116, 116, 0.35);
+    background: rgba(255, 116, 116, 0.08);
+    color: rgb(255, 205, 205);
+}
+
+@media (max-width: 700px) {
+    .tool-call-header,
+    .tool-call-detail-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .tool-call-summary {
+        text-align: left;
+    }
+
+    .tool-call-step {
+        max-width: 100%;
+    }
+}
+
 /* Blockquote Styles */
 blockquote {
     margin: 0;
