@@ -6,7 +6,7 @@ from .files import (
     SearchFilesTool,
     EditFileBlocksTool,
 )
-
+from .web_searching import WebSearchTool
 
 TOOLS = (
     ReadFilesTool,
@@ -15,6 +15,7 @@ TOOLS = (
     GitDiffTool,
     EditFilesTool,
     EditFileBlocksTool,
+    WebSearchTool,
     # CreateFolderTool,
 )
 

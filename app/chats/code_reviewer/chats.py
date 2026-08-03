@@ -1,10 +1,14 @@
+import asyncio
 import typing
+import uuid
 from pathlib import Path
 
-from ..base import AnswerBtn, Conversation, Message, Request, ToolCall
+from ..base import AnswerBtn, Conversation, Message, Request, ToolCall, ChatCallbackHandlerMixin
 from ..llm_chat import Chat
-from ...models.openai.base import FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse, \
-    LLMToolCallAggregatedTracker
+from ...models.openai.base import (
+    FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse,
+    LLMToolCallAggregatedTracker, BaseStepController,
+)
 from ...models.openai.utils import gen_fake_tool_call_id, serialize_tool_output
 from ...tools.additional_utils import get_changed_files
 from ...tools.all import TOOLS_MAP
@@ -12,17 +16,72 @@ from ...tools.files import GitDiffTool, ReadFilesTool
 from ...utils.common import gen_optimized_json
 
 
-class CodeManager(Chat):
+class CodeManagerStepController(BaseStepController):
+    code_manager: 'CodeManager'
+    conversation: Conversation
+
+    def __init__(self, *, code_manager: 'CodeManager', conversation: Conversation) -> None:
+        self.code_manager = code_manager
+        self.conversation = conversation
+
+    async def __call__(self, *, current_tokens: int) -> None:
+        has_achieved_desired_limit = self.code_manager.desired_max_tokens is not None and current_tokens > self.code_manager.desired_max_tokens
+
+        if has_achieved_desired_limit:
+            callback_uuid_to_continue = str(uuid.uuid4())
+            callback_uuid_to_stop = str(uuid.uuid4())
+            message = Message(
+                content='You have reached desired max tokens',
+                buttons=(
+                    AnswerBtn(name='Continue', callback=callback_uuid_to_continue),
+                    AnswerBtn(name='Stop', callback=callback_uuid_to_stop),
+                ),
+            )
+
+            target_event = asyncio.Event()
+            has_stopped = False
+
+            def _continue(request: Request) -> None:
+                self.code_manager.desired_max_tokens = None
+                target_event.set()
+
+            def _stop(request: Request) -> None:
+                nonlocal has_stopped
+
+                has_stopped = True
+                target_event.set()
+
+            self.code_manager._register_once_time_callback_handler(
+                name=callback_uuid_to_continue,
+                func=_continue,
+            )
+            self.code_manager._register_once_time_callback_handler(
+                name=callback_uuid_to_stop,
+                func=_stop,
+            )
+
+            await self.conversation.answer(message)
+            await target_event.wait()
+
+            if has_stopped:
+                raise RuntimeError('There are too few tokens left to answer.')
+
+            await self.conversation.set_text_status('Continue processing...')
+
+
+class CodeManager(ChatCallbackHandlerMixin, Chat):
     selected_work_dir: Path | None = None
     work_dirs: typing.Sequence[str]
     original_tool_names: list[str]
     connected_tool_names: set[str]
     welcome_message: Message | None = None
     files_are_supported = True
+    desired_max_tokens: int | None
 
     def __init__(self, *args, **kwargs) -> None:
         self.work_dirs = kwargs.pop('work_dirs')
         self.original_tool_names = list(kwargs.pop('tools'))
+        self.desired_max_tokens = kwargs.pop('desired_max_tokens')
         self.connected_tool_names = set(self.original_tool_names)
         if len(self.work_dirs) == 1:
             self.selected_work_dir = Path(self.work_dirs[0]).resolve()
@@ -35,15 +94,20 @@ class CodeManager(Chat):
         return self.welcome_message
 
     async def handle_callback(self, request: Request) -> None:
+        has_influence_on_welcome_message = False
+
         if request.callback.startswith('work_dir:'):
             work_dir = Path(request.callback.removeprefix('work_dir:')).resolve()
             self._choose_work_dir(work_dir)
+            has_influence_on_welcome_message = True
         elif request.callback.startswith('add_tool:'):
             tool_name = request.callback.removeprefix('add_tool:')
             self.connected_tool_names.add(tool_name)
+            has_influence_on_welcome_message = True
         elif request.callback.startswith('remove_tool:'):
             tool_name = request.callback.removeprefix('remove_tool:')
             self.connected_tool_names.remove(tool_name)
+            has_influence_on_welcome_message = True
         elif request.callback == 'add_context':
             self._add_context()
             changed_files = get_changed_files(self.selected_work_dir)
@@ -51,10 +115,13 @@ class CodeManager(Chat):
             await request.conversation.answer(
                 Message(content=f'✅ Added context for:\n\n{"\n".join(changed_files_to_show)}'),
             )
+        else:
+            self._handle_once_time_callbacks(request)
 
-        await self._gen_welcome_message()
-        assert self.welcome_message is not None
-        await request.conversation.update_message(self.welcome_message)
+        if has_influence_on_welcome_message:
+            await self._gen_welcome_message()
+            assert self.welcome_message is not None
+            await request.conversation.update_message(self.welcome_message)
 
     def _choose_work_dir(self, work_dir: Path) -> None:
         self.selected_work_dir = work_dir
@@ -84,6 +151,10 @@ class CodeManager(Chat):
             max_steps=100,
             logger=logger,
             memory=self.memory,
+            step_controller=CodeManagerStepController(
+                code_manager=self,
+                conversation=conversation,
+            ),
         )
 
     def _add_context(self) -> None:

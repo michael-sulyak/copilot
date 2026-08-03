@@ -9,7 +9,7 @@ class WebSearchTool(BaseLLMTool):
     @staticmethod
     def dump() -> dict[str, typing.Any]:
         return {
-            'type': 'web_search_preview',
+            'type': 'web_search',
         }
 
 

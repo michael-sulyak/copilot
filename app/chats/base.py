@@ -9,13 +9,13 @@ from collections import OrderedDict
 import aiohttp_rpc
 from pydantic import BaseModel
 
+from .constants import Actions, Statuses
 from ..desktop_defs import InputMessage, OutputAction, OutputMessage, OutputToolCall
 from ..utils.local_file_storage import File
-from .constants import Actions, Statuses
-
 
 if typing.TYPE_CHECKING:
     from .chat_loader import LazyChat
+
 
 class ChatError(Exception):
     pass
@@ -178,7 +178,8 @@ class OpenedChat:
     chat: BaseChat
     conversation: Conversation
 
-    def __init__(self, *, name: str, original_chat: typing.Union[BaseChat, 'LazyChat'], rpc_client: aiohttp_rpc.WSJSONRPCClient) -> None:
+    def __init__(self, *, name: str, original_chat: typing.Union[BaseChat, 'LazyChat'],
+                 rpc_client: aiohttp_rpc.WSJSONRPCClient) -> None:
         self.uuid = uuid.uuid4()
         self.name = name
         self.history = OrderedDict()
@@ -234,3 +235,28 @@ class BaseChat:
 
     async def handle_callback(self, request: Request) -> None:
         await request.conversation.answer(Message(content='Not implemented.'))
+
+
+class ChatCallbackHandlerMixin:
+    _once_time_callback_handlers_map: dict[str, typing.Callable[[Request], None]]
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._once_time_callback_handlers_map = {}
+
+        super().__init__(*args, **kwargs)
+
+    def _handle_once_time_callbacks(self, request: Request) -> bool:
+        if not request.callback:
+            return False
+
+        func = self._once_time_callback_handlers_map.pop(request.callback, None)
+
+        if func:
+            func(request)
+            return True
+
+        return False
+
+    def _register_once_time_callback_handler(self, name: str, func: typing.Callable[[Request], None]) -> None:
+        # TODO: Refactor using of it
+        self._once_time_callback_handlers_map[name] = func

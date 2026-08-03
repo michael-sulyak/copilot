@@ -7,6 +7,7 @@ class LLMMessageRoles:
 
 class LLMToolParamTypes:
     STRING = 'string'
+    INTEGER = 'integer'
     OBJECT = 'object'
     ARRAY = 'array'
     BOOLEAN = 'boolean'

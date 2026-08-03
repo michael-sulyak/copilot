@@ -76,7 +76,7 @@ function getOverallStatus(payloadStatus, toolCalls) {
         return 'failed'
     }
 
-    if (payloadStatus === 'done' || toolCalls.length > 0) {
+    if (payloadStatus === 'done') {
         return 'done'
     }
 
@@ -210,6 +210,10 @@ function ToolCall({message}) {
     const toolCalls = useMemo(() => getToolCalls(payload), [payload])
     const overallStatus = getOverallStatus(payload?.status, toolCalls)
     const meta = getStatusMeta(overallStatus)
+
+    if (overallStatus === 'done' && toolCalls.length === 0) {
+        return <Fragment/>
+    }
 
     return (
         <div className="message d-flex tool-call-message">

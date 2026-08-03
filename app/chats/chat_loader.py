@@ -89,6 +89,7 @@ def create_chat(chat_data: dict) -> tuple[str, LazyChat | BaseChat]:
         files_supported = chat_data.get('files_supported', False)
         work_dirs = chat_data.get('work_dirs', [])
         tools = chat_data.get('tools', [])
+        desired_max_tokens = chat_data.get('desired_max_tokens')
 
         return name, LazyChat(lambda: CodeManager(
             profile=profile,
@@ -96,6 +97,7 @@ def create_chat(chat_data: dict) -> tuple[str, LazyChat | BaseChat]:
             model=model,
             files_are_supported=files_supported,
             work_dirs=work_dirs,
+            desired_max_tokens=desired_max_tokens,
             tools=tools,  # TODO: `Messenger` also has `tools`
         ))
 

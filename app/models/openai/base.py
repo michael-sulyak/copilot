@@ -193,6 +193,10 @@ class LLMFunctionCall(BaseLLMMessage):
 
         return result
 
+class BaseStepController(abc.ABC):
+    @abc.abstractmethod
+    async def __call__(self, *, current_tokens: int) -> None:
+        pass
 
 class LLMToolCallTracker:
     call: LLMFunctionCall
@@ -343,6 +347,14 @@ class BaseLLMTool(abc.ABC):
     def dump(self) -> dict[str, typing.Any]:
         pass
 
+@dataclasses.dataclass(frozen=True)
+class BuiltInLLMTool(BaseLLMTool):
+    name: str
+
+    def dump(self) -> dict[str, typing.Any]:
+        return {
+            'name': self.name,
+        }
 
 @dataclasses.dataclass(frozen=True)
 class FunctionLLMTool(BaseLLMTool):
@@ -609,6 +621,7 @@ class BaseLLM:
             stop_when: typing.Callable[[LLMFunctionCall, typing.Any], bool] | None = None,
             logger: typing.Callable | None = None,
             memory: BaseMemory | None = None,
+            step_controller: BaseStepController | None = None,
     ) -> LLMResponse:
         """
         Runs the model-tool loop:
@@ -641,6 +654,11 @@ class BaseLLM:
             current_tokens = cls.count_tokens(buffer)
             if check_total_length and not cls.has_enough_tokens_to_answer(current_tokens):
                 raise openai.OpenAIError('There are too few tokens left to answer.')
+
+            if step_controller:
+                await step_controller(
+                    current_tokens=current_tokens,
+                )
 
             step_response = await cls.process(
                 messages=buffer,
@@ -736,6 +754,7 @@ class BaseLLM:
                             await logger(aggregated_tracker)
 
                     if stop_when and stop_when(call, result_value):
+                        # TODO: Check & update logic of `stop_when`
                         final_turn = await cls.process(
                             messages=memory.get_buffer(),
                             temperature=temperature,
