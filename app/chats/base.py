@@ -9,9 +9,10 @@ from collections import OrderedDict
 import aiohttp_rpc
 from pydantic import BaseModel
 
-from .constants import Actions, Statuses
 from ..desktop_defs import InputMessage, OutputAction, OutputMessage, OutputToolCall
 from ..utils.local_file_storage import File
+from .constants import Actions, Statuses
+
 
 if typing.TYPE_CHECKING:
     from .chat_loader import LazyChat
@@ -133,7 +134,7 @@ class Conversation:
     async def answer(self, answer: BaseAnswer) -> None:
         output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid))
 
-        if isinstance(output_obj, (OutputMessage, OutputToolCall,)):
+        if isinstance(output_obj, OutputMessage | OutputToolCall):
             if output_obj.uuid in self._opened_chat.history:
                 raise RuntimeError('Message already sent')
 
@@ -174,8 +175,8 @@ class OpenedChat:
     uuid: uuid.UUID
     name: str
     history: OrderedDict[str, InputMessage | OutputMessage]
-    original_chat: BaseChat | LazyChat
-    chat: BaseChat
+    original_chat: typing.Union['BaseChat', LazyChat]
+    chat: 'BaseChat'
     conversation: Conversation
 
     def __init__(self, *, name: str, original_chat: typing.Union[BaseChat, 'LazyChat'],
@@ -227,6 +228,9 @@ class BaseChat:
         pass
 
     async def clear_history(self) -> None:
+        pass
+
+    async def close(self) -> None:
         pass
 
     async def get_welcome_message(self) -> Message | None:

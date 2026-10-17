@@ -1,12 +1,13 @@
 from .files import (
+    EditFileBlocksTool,
     EditFilesTool,
     GitDiffTool,
     ListFilesTool,
     ReadFilesTool,
     SearchFilesTool,
-    EditFileBlocksTool,
 )
 from .web_searching import WebSearchTool
+
 
 TOOLS = (
     ReadFilesTool,

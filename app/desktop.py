@@ -189,7 +189,13 @@ class DesktopApp:
     async def clean(self) -> None:
         logging.info('Cleaning...')
 
-        for chat_uuid in list(self.processing_tasks.keys()):
+        for chat_uuid in list(self.opened_chats_map):
+            try:
+                await self.close_chat(chat_uuid)
+            except Exception:
+                logging.exception('Failed to close chat "%s" during cleanup.', chat_uuid)
+
+        for chat_uuid in list(self.processing_tasks):
             await self._cancel_chat_tasks(chat_uuid)
 
         if self.runner:
@@ -201,10 +207,15 @@ class DesktopApp:
         await opened_chat.chat.clear_history()
 
     async def close_chat(self, chat_uuid: str) -> None:
-        self._get_opened_chat(chat_uuid)
+        opened_chat = self.opened_chats_map.pop(chat_uuid, None)
 
-        await self._cancel_chat_tasks(chat_uuid)
-        del self.opened_chats_map[chat_uuid]
+        if opened_chat is None:
+            raise ValueError(f'Chat "{chat_uuid}" is not opened.')
+
+        try:
+            await self._cancel_chat_tasks(chat_uuid)
+        finally:
+            await opened_chat.chat.close()
 
     async def get_settings(self) -> dict:
         if not self.opened_chats_map:
@@ -308,12 +319,17 @@ class DesktopApp:
             opened_chat.history[message.uuid] = message
 
         async def _process_request() -> None:
+            cancelled = False
+
             try:
+                await opened_chat.conversation.start()
+
                 if message.is_callback:
                     await opened_chat.chat.handle_callback(request)
                 else:
                     await opened_chat.chat.handle(request)
             except asyncio.CancelledError:
+                cancelled = True
                 logging.info('Processing task for chat "%s" was cancelled.', message.chat_uuid)
                 raise
             except ChatError as e:
@@ -323,12 +339,13 @@ class DesktopApp:
                 logging.exception('Unhandled exception')
                 await opened_chat.conversation.exception(e)
             finally:
-                try:
-                    await opened_chat.conversation.finish()
-                except Exception:
-                    logging.exception('Failed to finish conversation for chat "%s".', message.chat_uuid)
-
-        await opened_chat.conversation.start()
+                # A closed chat no longer has UI state to reset. More
+                # importantly, cancellation should not start new RPC work.
+                if not cancelled:
+                    try:
+                        await opened_chat.conversation.finish()
+                    except Exception:
+                        logging.exception('Failed to finish conversation for chat "%s".', message.chat_uuid)
 
         task = asyncio.create_task(_process_request())
         self._track_chat_task(message.chat_uuid, task)

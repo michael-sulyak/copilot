@@ -27,6 +27,10 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from pydantic import BaseModel
 
+from ... import config
+from ...memory import BaseMemory, Memory
+from ...utils.common import chunk_generator, gen_optimized_json
+from ...utils.local_file_storage import File
 from .constants import NOTSET, LLMContentTypes, LLMMessageRoles, LLMToolParamTypes
 from .utils import (
     format_tool_chat_message,
@@ -36,10 +40,6 @@ from .utils import (
     process_llm_request_via_old_api,
     serialize_tool_output,
 )
-from ... import config
-from ...memory import BaseMemory, Memory
-from ...utils.common import chunk_generator, gen_optimized_json
-from ...utils.local_file_storage import File
 
 
 @dataclasses.dataclass(frozen=True)
@@ -516,7 +516,27 @@ class BaseLLM:
 
                 logging.info(f'Last status of background request: "{response.status}"')
 
-            await cls._make_raw_request(_check_response)
+            try:
+                await cls._make_raw_request(_check_response)
+            except asyncio.CancelledError:
+                # Cancelling local polling does not cancel a Responses API job
+                # that is already running remotely. Best-effort remote
+                # cancellation makes close_chat() stop that work as well.
+                cancel_response = getattr(cls.config.client.responses, 'cancel', None)
+
+                if cancel_response is not None:
+                    try:
+                        await asyncio.wait_for(
+                            cancel_response(response.id),
+                            timeout=5,
+                        )
+                    except Exception:
+                        logging.exception(
+                            'Failed to cancel remote response "%s".',
+                            response.id,
+                        )
+
+                raise
 
         logging.info('Response: %s', response)
 
@@ -1054,7 +1074,7 @@ class BaseDrawer(abc.ABC):
 
 
 class GPTImage(BaseDrawer):
-    model_name = 'gpt-image-2'
+    model_name = 'gpt-image-2.5-flare'
     input_price = 8 / 1_000_000
     output_price = 30 / 1_000_000
     max_prompt_length = 10_000

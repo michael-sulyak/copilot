@@ -3,17 +3,21 @@ import typing
 import uuid
 from pathlib import Path
 
-from ..base import AnswerBtn, Conversation, Message, Request, ToolCall, ChatCallbackHandlerMixin
-from ..llm_chat import Chat
 from ...models.openai.base import (
-    FunctionLLMTool, LLMFunctionCall, LLMFunctionCallOutput, LLMResponse,
-    LLMToolCallAggregatedTracker, BaseStepController,
+    BaseStepController,
+    FunctionLLMTool,
+    LLMFunctionCall,
+    LLMFunctionCallOutput,
+    LLMResponse,
+    LLMToolCallAggregatedTracker,
 )
 from ...models.openai.utils import gen_fake_tool_call_id, serialize_tool_output
 from ...tools.additional_utils import get_changed_files
 from ...tools.all import TOOLS_MAP
 from ...tools.files import GitDiffTool, ReadFilesTool
 from ...utils.common import gen_optimized_json
+from ..base import AnswerBtn, ChatCallbackHandlerMixin, Conversation, Message, Request, ToolCall
+from ..llm_chat import Chat
 
 
 class CodeManagerStepController(BaseStepController):

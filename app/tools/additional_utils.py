@@ -59,9 +59,9 @@ def suggest_similar_paths(requested: str, candidates: list[str], *, limit: int =
     direct = [
         candidate for candidate in candidates
         if requested_norm and (
-            requested_norm in candidate.lower()
-            or req_name == Path(candidate).name.lower()
-            or req_name in Path(candidate).name.lower()
+                requested_norm in candidate.lower()
+                or req_name == Path(candidate).name.lower()
+                or req_name in Path(candidate).name.lower()
         )
     ]
 
@@ -125,36 +125,47 @@ def trim_text(text: str, limit: int = 12_000) -> str:
 
 
 def get_changed_files(
-    repo_dir: Path,
-    *,
-    staged: bool = False,
-    ref: str | None = None,
+        repo_dir: Path,
+        *,
+        staged: bool = False,
+        ref: str | None = None,
 ) -> tuple[str, ...]:
-    """
-    Return a list of file paths changed in the git repository.
-    """
-
+    """Return paths changed relative to a ref or the remote default branch."""
     repo_dir = Path(repo_dir).resolve()
 
-    cmd = ['git', 'diff', 'origin/master', '--name-only']
+    if ref is None:
+        symbolic_ref = subprocess.run(
+            ['git', 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
+            cwd=repo_dir,
+            text=True,
+            capture_output=True, check=False,
+        )
+
+        if symbolic_ref.returncode == 0:
+            ref = symbolic_ref.stdout.strip()
+        else:
+            for candidate in ('origin/main', 'origin/master'):
+                exists = subprocess.run(
+                    ['git', 'rev-parse', '--verify', '--quiet', candidate],
+                    cwd=repo_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, check=False,
+                )
+                if exists.returncode == 0:
+                    ref = candidate
+                    break
+            else:
+                raise RuntimeError('Could not find origin/main or origin/master')
+
+    cmd = ['git', 'diff', '--name-only']
 
     if staged:
         cmd.append('--cached')
 
-    if ref:
-        cmd.append(ref)
+    cmd.append(ref)
 
-    try:
-        output = subprocess.check_output(
-            cmd,
-            cwd=repo_dir,
-            text=True,
-        )
-    except subprocess.CalledProcessError:
-        return ()  # TODO: fix and check if project has git
-        # raise RuntimeError(f'git diff failed: {e}') from e
-
-    return tuple(line.strip() for line in output.splitlines() if line.strip())
+    output = subprocess.check_output(cmd, cwd=repo_dir, text=True)
+    return tuple(line for line in output.splitlines() if line)
 
 
 def gen_tool_error(*, tool: str, error_type: str, message: str, **extra: typing.Any) -> str:

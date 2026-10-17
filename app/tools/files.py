@@ -3,12 +3,12 @@ import subprocess
 import typing
 from pathlib import Path
 
-from .additional_utils import gen_tool_error, suggest_similar_paths
-from .base import BaseLLMToolFabric
-from .file_system import FileSystem
 from ..models.openai.base import FunctionLLMTool, LLMToolParam, LLMToolParams
 from ..models.openai.constants import LLMToolParamTypes
 from ..utils.common import gen_optimized_json
+from .additional_utils import gen_tool_error, suggest_similar_paths
+from .base import BaseLLMToolFabric
+from .file_system import FileSystem
 
 
 class ReadFilesTool(BaseLLMToolFabric):
@@ -359,8 +359,29 @@ class GitDiffTool(BaseLLMToolFabric):
 
     def run(self) -> str:
         try:
+            base_ref = None
+            for candidate in ('origin/main', 'origin/master'):
+                ref_check = subprocess.run(
+                    ['git', 'show-ref', '--verify', '--quiet',
+                     f'refs/remotes/{candidate}'],
+                    cwd=self.work_dir,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if ref_check.returncode == 0:
+                    base_ref = candidate
+                    break
+
+            if base_ref is None:
+                return gen_tool_error(
+                    tool=self.description.name,
+                    error_type='GitDiffFailed',
+                    message='Neither origin/main nor origin/master is available. Run git fetch.',
+                )
+
             proc = subprocess.run(
-                ['git', 'diff', 'origin/master'],  # TODO: Add check that the branch updated
+                ['git', 'diff', base_ref],
                 cwd=self.work_dir,
                 capture_output=True,
                 text=True,
@@ -377,7 +398,8 @@ class GitDiffTool(BaseLLMToolFabric):
             return gen_tool_error(
                 tool=self.description.name,
                 error_type='GitDiffFailed',
-                message=(proc.stderr or proc.stdout or '').strip() or f'Exit code: {proc.returncode}',
+                message=(proc.stderr or proc.stdout or '').strip()
+                or f'Exit code: {proc.returncode}',
                 exit_code=proc.returncode,
             )
 
