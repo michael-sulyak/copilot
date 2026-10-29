@@ -14,11 +14,12 @@ from aiohttp.abc import AbstractResolver
 from duckduckgo_search import DDGS
 from newspaper import Article
 
-from ..models.openai.base import BuiltInLLMTool, FunctionLLMTool, LLMToolParam
-from ..models.openai.constants import LLMToolParamTypes
-from ..utils.common import gen_optimized_json
 from .additional_utils import gen_tool_error
 from .base import BaseLLMToolFabric
+from ..models.openai.base import BuiltInLLMTool, FunctionLLMTool, LLMToolParam, AVAILABLE_LLM_MODELS_MAP, BaseLLM, \
+    LLMMessage
+from ..models.openai.constants import LLMToolParamTypes, LLMMessageRoles
+from ..utils.common import gen_optimized_json
 
 
 @dataclass
@@ -74,6 +75,7 @@ class PublicAddressResolver(AbstractResolver):
     async def close(self) -> None:
         """aiohttp resolver interface; no persistent resources to close."""
 
+
 class OpenaiSearchTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
         name='tool_search',
@@ -84,9 +86,9 @@ class OpenaiSearchTool(BaseLLMToolFabric):
     def __init__(self, work_dir: Path) -> None:
         pass
 
-
     def describe(self) -> BuiltInLLMTool:
         return BuiltInLLMTool(name='tool_search')
+
 
 class WebSearchTool(BaseLLMToolFabric):
     """
@@ -803,3 +805,54 @@ class WebSearchTool(BaseLLMToolFabric):
             raise failure['error']
 
         return result.get('value')
+
+
+class AIWebSearchTool(BaseLLMToolFabric):
+    description = FunctionLLMTool(
+        name='ai_web_search',
+        showed_name='🌐 AI Web search',
+        description=(
+            'Search public web pages using an AI-powered search assistant. '
+            'Provide a clear search prompt describing the information you need '
+            'and your preferred response format. '
+            'For topics that require multiple perspectives, include one to four '
+            'concise, complementary search queries covering sources such as '
+            'official documentation, technical analysis, and recent developments. '
+            'For unrelated topics or extensive research, make separate tool calls '
+            'with focused prompts to improve relevance and detail.'
+        ),
+        parameters=(
+            LLMToolParam(
+                name='prompt',
+                type=LLMToolParamTypes.STRING,
+                description=(
+                    'Instructions for the AI search assistant. Specify the question '
+                    'or topic, relevant context, and any constraints, such as date '
+                    'range or preferred sources. Briefly describe the desired '
+                    'response format, such as a summary, comparison, or list of '
+                    'findings with source links.'
+                ),
+                required=True,
+            ),
+        ),
+    )
+    _llm: BaseLLM
+    _base_llm_model: str = 'GPT middle'  # TODO: Use global settings for it. Or create settings for utils
+
+    def __init__(self, work_dir: Path) -> None:
+        self._llm = AVAILABLE_LLM_MODELS_MAP[self._base_llm_model]
+
+    async def run(self, *, prompt: str) -> str:
+        from ..chats.tools import WebSearchTool as OPENAIWebSearchTool
+
+        result = await self._llm.process(
+            messages=(
+                LLMMessage(
+                    role=LLMMessageRoles.ASSISTANT,
+                    content=prompt,
+                ),
+            ),
+            tools=(OPENAIWebSearchTool,),
+        )
+
+        return result.content or ''

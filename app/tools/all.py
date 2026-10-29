@@ -6,8 +6,7 @@ from .files import (
     ReadFilesTool,
     SearchFilesTool,
 )
-from .web_searching import WebSearchTool
-
+from .web_searching import WebSearchTool, AIWebSearchTool
 
 TOOLS = (
     ReadFilesTool,
@@ -17,6 +16,7 @@ TOOLS = (
     EditFilesTool,
     EditFileBlocksTool,
     WebSearchTool,
+    AIWebSearchTool,
     # CreateFolderTool,
 )
 

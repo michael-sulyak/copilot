@@ -112,6 +112,7 @@ ignore = [
     "TRY003",
     "TRY004",
     "TRY401",  # TODO: Fix
+    "TRY301",
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
