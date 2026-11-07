@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import math
 import random
@@ -109,14 +110,21 @@ def num_tokens_from_message(message: ChatCompletionMessageParam, model: str, def
             # For GPT-4-vision support, based on https://github.com/openai/openai-cookbook/pull/881/files
             for item in value:
                 # Note: item[type] does not seem to be counted in the token count
-                if item['type'] == 'text':
-                    num_tokens += len(encoding.encode(item['text']))
-                elif item['type'] == 'image_url':
-                    num_tokens += count_tokens_for_image(item['image_url']['url'], item['image_url']['detail'])
+                item_type = item.get('type') if isinstance(item, dict) else None
+                if item_type in {'text', 'input_text', 'output_text', 'summary_text'}:
+                    num_tokens += len(encoding.encode(item['text'], disallowed_special=()))
+                elif item_type == 'image_url':
+                    num_tokens += count_tokens_for_image(item['image_url']['url'], item['image_url'].get('detail', 'auto'))
+                elif item_type == 'input_image':
+                    num_tokens += count_tokens_for_image(item['image_url'], item.get('detail', 'auto'))
+                else:
+                    num_tokens += len(encoding.encode(json.dumps(item), disallowed_special=()))
         elif isinstance(value, str):
-            num_tokens += len(encoding.encode(value))
-        else:
-            raise ValueError(f'Could not encode unsupported message value type: {type(value)}, message: {message}')
+            # Opaque reasoning state is replayed but is not ordinary text input.
+            if key != 'encrypted_content':
+                num_tokens += len(encoding.encode(value, disallowed_special=()))
+        elif value is not None:
+            num_tokens += len(encoding.encode(json.dumps(value), disallowed_special=()))
 
         if key == 'name':
             num_tokens += 1
@@ -135,8 +143,8 @@ def get_image_dims(image_uri: str) -> tuple[int, int]:
     # From https://github.com/openai/openai-cookbook/pull/881/files
     if re.match(r'data:image\/\w+;base64', image_uri):
         image_uri = re.sub(r'data:image\/\w+;base64,', '', image_uri)
-        image = Image.open(BytesIO(base64.b64decode(image_uri)))
-        return image.size
+        with Image.open(BytesIO(base64.b64decode(image_uri))) as image:
+            return image.size
 
     raise ValueError('Image must be a base64 string.')
 
@@ -190,7 +198,17 @@ def prepare_llm_response_content(content: str | None) -> str | None:
 
 async def process_llm_request_via_old_api(*, llm: type['BaseLLM'], llm_request: 'LLMRequest') -> Response:
     raw_llm_request = llm_request.dump()
-    raw_llm_request['messages'] = raw_llm_request.pop('input')
+    raw_llm_request['messages'] = [dict(message) for message in raw_llm_request.pop('input')]
+    for message in raw_llm_request['messages']:
+        if isinstance(message.get('content'), list):
+            message['content'] = [
+                {'type': 'text', 'text': item['text']}
+                if item['type'] == 'input_text' else {
+                    'type': 'image_url',
+                    'image_url': {'url': item['image_url'], 'detail': item.get('detail', 'auto')},
+                }
+                for item in message['content']
+            ]
 
     if raw_llm_request.get('reasoning'):
         raw_llm_request['reasoning_effort'] = raw_llm_request.pop('reasoning').effort
@@ -201,9 +219,9 @@ async def process_llm_request_via_old_api(*, llm: type['BaseLLM'], llm_request: 
 
     if raw_func_call := raw_response.choices[0].message.function_call:
         response_output = ResponseFunctionToolCall(
-            arguments=raw_func_call['arguments'],
+            arguments=raw_func_call.arguments,
             call_id='0',
-            name=raw_func_call['name'],
+            name=raw_func_call.name,
             type='function_call',
         )
     else:
@@ -212,7 +230,7 @@ async def process_llm_request_via_old_api(*, llm: type['BaseLLM'], llm_request: 
             content=[
                 ResponseOutputText(
                     annotations=[],
-                    text=raw_response.choices[0].message.content,
+                    text=raw_response.choices[0].message.content or '',
                     type='output_text',
                 ),
             ],

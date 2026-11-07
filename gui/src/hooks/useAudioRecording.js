@@ -1,82 +1,99 @@
-import {useCallback, useRef, useState} from 'react'
-import {getTimestampNs} from '../utils'
+import {useCallback, useEffect, useRef, useState} from 'react'
+import {callRpc} from '../api'
 
-function useAudioRecording({
-    addNotification,
-    inputValue,
-    setInputValue,
-    uploadFiles,
-    updateMessengerState,
-    processRpcError,
-}) {
+function useAudioRecording({addNotification, setInputValue, uploadFiles, updateMessengerState, processRpcError}) {
     const [recordingState, setRecordingState] = useState({status: 'off'})
     const mediaRecorderRef = useRef(null)
+    const streamRef = useRef(null)
+    const busyRef = useRef(false)
+    const mountedRef = useRef(false)
+
+    useEffect(() => {
+        mountedRef.current = true
+        return () => {
+            mountedRef.current = false
+            const recorder = mediaRecorderRef.current
+            if (recorder) {
+                recorder.onstop = null
+                if (recorder.state !== 'inactive') recorder.stop()
+            }
+            streamRef.current?.getTracks().forEach((track) => track.stop())
+        }
+    }, [])
 
     const startRecording = useCallback(async () => {
-        if (recordingState.status !== 'off') return
-
-        let stream
-
+        if (busyRef.current) return
+        busyRef.current = true
         try {
-            stream = await navigator.mediaDevices.getUserMedia({audio: true})
-        } catch (err) {
-            addNotification('Error accessing microphone: ' + err.message)
-            return
-        }
+            if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+                throw new Error('Audio recording is not supported in this browser. Use HTTPS or localhost.')
+            }
 
-        setRecordingState({status: 'on', startedAt: new Date()})
+            const stream = await navigator.mediaDevices.getUserMedia({audio: true})
 
-        const mediaRecorder = new MediaRecorder(stream)
-        mediaRecorderRef.current = mediaRecorder
-        let chunks = []
+            if (!mountedRef.current) {
+                stream.getTracks().forEach((track) => track.stop())
+                return
+            }
+            streamRef.current = stream
+            const recorder = new MediaRecorder(stream)
+            mediaRecorderRef.current = recorder
+            const chunks = []
+            recorder.ondataavailable = (event) => {
+                if (event.data?.size) chunks.push(event.data)
+            }
+            recorder.onerror = (event) => {
+                recorder.onstop = null
+                stream.getTracks().forEach((track) => track.stop())
+                busyRef.current = false
 
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-                chunks.push(event.data)
+                if (mountedRef.current) {
+                    setRecordingState({status: 'off'})
+                    addNotification(event.error?.message || 'Audio recording failed.')
+                }
+            }
+
+            recorder.onstop = async () => {
+                stream.getTracks().forEach((track) => track.stop())
+                if (!mountedRef.current) return
+                setRecordingState({status: 'processing'})
+                try {
+                    const mimeType = recorder.mimeType || 'audio/webm'
+                    const extension = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
+                    const blob = new Blob(chunks, {type: mimeType})
+                    const audio = new File([blob], `recording_${Date.now()}.${extension}`, {type: mimeType})
+                    const files = await uploadFiles({files: [audio], updateMessangerStateText: false})
+                    updateMessengerState({text: 'Processing audio…'})
+                    const result = await callRpc('process_audio', [files[0].id], 120000)
+                    if (result?.error) throw new Error(result.error)
+                    if (typeof result?.text !== 'string') throw new Error('The server returned an invalid transcription.')
+                    if (mountedRef.current) setInputValue((current) => (current ? `${current}\n\n${result.text}` : result.text))
+                } catch (error) {
+                    if (mountedRef.current) await processRpcError(error)
+                } finally {
+                    busyRef.current = false
+                    if (mountedRef.current) {
+                        setRecordingState({status: 'off'})
+                        updateMessengerState({text: null})
+                    }
+                }
+            }
+            recorder.start()
+            setRecordingState({status: 'on', startedAt: new Date()})
+        } catch (error) {
+            streamRef.current?.getTracks().forEach((track) => track.stop())
+            busyRef.current = false
+            if (mountedRef.current) {
+                setRecordingState({status: 'off'})
+                await addNotification(error.message)
             }
         }
+    }, [addNotification, setInputValue, uploadFiles, updateMessengerState, processRpcError])
 
-        mediaRecorder.onstop = async () => {
-            setRecordingState({status: 'processing'})
-            const blob = new Blob(chunks, {type: 'audio/webm'})
-            stream.getTracks().forEach((track) => track.stop())
-            const fileName = `recording_${Date.now()}.webm`
-            const audioFile = new File([blob], fileName, {type: blob.type})
-
-            await uploadFiles({
-                files: [audioFile],
-                updateMessangerStateText: false,
-                callback: async (response) => {
-                    const rpcClient = window.rpcClient
-
-                    const parsedResponse = JSON.parse(response)
-                    const uploadedFiles = parsedResponse.files
-
-                    await updateMessengerState({text: 'Processing audio...', timestamp: getTimestampNs()})
-                    const result = await rpcClient.call('process_audio', [uploadedFiles[0].id]).catch(processRpcError)
-
-                    setRecordingState({status: 'off'})
-                    await updateMessengerState({text: null, timestamp: getTimestampNs()})
-
-                    if (result.error) {
-                        await addNotification(result.error)
-                    } else {
-                        await setInputValue(inputValue ? `${inputValue}\n\n${result.text}` : result.text)
-                    }
-                },
-            })
-        }
-
-        mediaRecorder.start()
-    }, [processRpcError, inputValue, updateMessengerState, recordingState, addNotification, setInputValue, uploadFiles])
-
-    const stopRecording = useCallback(async () => {
-        if (mediaRecorderRef.current && recordingState.status === 'on') {
-            mediaRecorderRef.current.stop()
-        } else {
-            addNotification('Not currently recording.')
-        }
-    }, [recordingState, addNotification])
+    const stopRecording = useCallback(() => {
+        const recorder = mediaRecorderRef.current
+        if (recorder?.state === 'recording') recorder.stop()
+    }, [])
 
     return {recordingState, startRecording, stopRecording}
 }

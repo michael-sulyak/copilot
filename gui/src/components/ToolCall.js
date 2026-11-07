@@ -145,10 +145,7 @@ function ToolCallPipeline({toolCalls, overallStatus}) {
                 return (
                     <Fragment key={`${index}-${toolName}-${toolCall?.status || 'unknown'}`}>
                         {index > 0 && (
-                            <span
-                                className={`tool-call-arrow ${overallStatus === 'in_progress' ? 'in-progress' : ''}`}
-                                aria-hidden="true"
-                            >
+                            <span className={`tool-call-arrow ${overallStatus === 'in_progress' ? 'in-progress' : ''}`} aria-hidden="true">
                                 →
                             </span>
                         )}
@@ -212,7 +209,7 @@ function ToolCall({message}) {
     const meta = getStatusMeta(overallStatus)
 
     if (overallStatus === 'done' && toolCalls.length === 0) {
-        return <Fragment/>
+        return <Fragment />
     }
 
     return (

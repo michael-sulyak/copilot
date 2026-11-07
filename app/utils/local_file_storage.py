@@ -1,3 +1,4 @@
+import codecs
 import contextlib
 import dataclasses
 import datetime
@@ -6,7 +7,6 @@ import logging
 import mimetypes
 import os
 import pathlib
-import shutil
 import typing
 import uuid
 from functools import cached_property, lru_cache
@@ -37,7 +37,7 @@ class File:
 
         with open(self.path, 'rb') as file_io:
             try:
-                mime_type = mime.from_buffer(file_io.read())
+                mime_type = mime.from_buffer(file_io.read(8192))
             except magic.MagicException as e:
                 raise ValueError(f'Could not detect file type for "{self.name}"') from e
 
@@ -47,7 +47,10 @@ class File:
     def is_plain_text(self) -> bool:
         try:
             with open(self.path, 'rb') as file_io:
-                file_io.read()
+                sample = file_io.read(8192)
+
+                # A sample can end partway through a valid UTF-8 character.
+                codecs.getincrementaldecoder('utf-8')().decode(sample, final=False)
         except (OSError, UnicodeDecodeError):
             return False
         else:
@@ -69,7 +72,7 @@ class File:
         return {
             'id': self.id,
             'name': self.name,
-            'path': self.path,
+            'url': self.url,
             'uploaded_at': self.uploaded_at.isoformat(),
         }
 
@@ -82,13 +85,13 @@ class File:
 class LocalFileStorage:
     target_directory: str
     showed_directory: str
-    _files_map: dict[str, File] = {}
+    _files_map: dict[str, File]
 
     def __init__(self, *, target_directory: str, showed_directory: str) -> None:
         self.target_directory = target_directory
         self.showed_directory = showed_directory
-        shutil.rmtree(self.target_directory)
-        os.makedirs(self.target_directory)
+        self._files_map = {}
+        os.makedirs(self.target_directory, exist_ok=True)
 
     def get(self, file_id: str) -> File | None:
         return self._files_map.get(file_id)
@@ -96,36 +99,54 @@ class LocalFileStorage:
     async def save_files(self, request: web.Request) -> list[File]:
         reader = await request.multipart()
         saved_files = []
+        created_paths = []
+        total_bytes = 0
 
-        while True:
-            part = await reader.next()
-            if part is None:
-                break
+        try:
+            while (part := await reader.next()) is not None:
+                if not part.filename:
+                    raise web.HTTPBadRequest(text='Every upload part must be a file.')
 
-            if part.filename:
-                file_extension = pathlib.Path(part.filename).suffix
+                if len(saved_files) >= config.MAX_UPLOAD_FILES:
+                    raise web.HTTPBadRequest(text=f'At most {config.MAX_UPLOAD_FILES} files are allowed.')
+
+                file_name = pathlib.PurePosixPath(part.filename.replace('\\', '/')).name
+                file_extension = pathlib.Path(file_name).suffix
                 file_id = str(uuid.uuid4())
-                file_path = os.path.join(self.target_directory, f'{file_id}{file_extension}')
+                stored_name = f'{file_id}{file_extension}'
+                file_path = os.path.join(self.target_directory, stored_name)
+                created_paths.append(file_path)
+                file_bytes = 0
 
-                with open(file_path, 'wb') as file:
-                    while True:
-                        chunk = await part.read_chunk()
+                async with aiofiles.open(file_path, 'wb') as file:
+                    while chunk := await part.read_chunk():
+                        file_bytes += len(chunk)
+                        total_bytes += len(chunk)
+                        if file_bytes > config.MAX_UPLOAD_FILE_BYTES:
+                            raise web.HTTPRequestEntityTooLarge(
+                                max_size=config.MAX_UPLOAD_FILE_BYTES, actual_size=file_bytes,
+                            )
+                        if total_bytes > config.MAX_UPLOAD_TOTAL_BYTES:
+                            raise web.HTTPRequestEntityTooLarge(
+                                max_size=config.MAX_UPLOAD_TOTAL_BYTES, actual_size=total_bytes,
+                            )
+                        await file.write(chunk)
 
-                        if not chunk:
-                            break
-
-                        file.write(chunk)
-
-                file_info = File(
+                saved_files.append(File(
                     id=file_id,
-                    name=part.filename,
+                    name=file_name,
                     path=file_path,
+                    url=f'{self.showed_directory.rstrip("/")}/{stored_name}',
                     uploaded_at=datetime.datetime.now(),
-                )
+                ))
+        except BaseException:
+            # Roll back partial uploads on validation errors, disconnects and cancellation.
+            for file_path in created_paths:
+                pathlib.Path(file_path).unlink(missing_ok=True)
 
-                saved_files.append(file_info)
-                self._files_map[file_info.id] = file_info
+            raise
 
+        self._files_map.update((file.id, file) for file in saved_files)
         return saved_files
 
     async def save_file(self, file_name: str, buffer: io.BytesIO) -> File:
@@ -150,7 +171,7 @@ class LocalFileStorage:
             id=file_id,
             name=file_name,
             path=file_path,
-            url=os.path.join(self.showed_directory, new_file_name),
+            url=f'{self.showed_directory.rstrip("/")}/{new_file_name}',
             uploaded_at=datetime.datetime.now(),
         )
 

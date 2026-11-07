@@ -1,11 +1,12 @@
 import {useCallback, useMemo, useState} from 'react'
-import {getTimestampNs} from '../utils'
+import {getUiTimestamp} from '../utils'
 
 const DEFAULT_CHAT_STATE = {
     status: 'idle',
     text: null,
     prevText: null,
     timestamp: 0,
+    revision: 0,
 }
 
 function useMessengerState({activeChatUuid}) {
@@ -17,32 +18,26 @@ function useMessengerState({activeChatUuid}) {
     )
 
     const updateMessengerState = useCallback(
-        async ({text, status, timestamp, chatUuid} = {}) => {
+        async ({text, status, timestamp, revision, chatUuid} = {}) => {
             const targetChatUuid = chatUuid ?? activeChatUuid
 
             if (!targetChatUuid) {
                 return
             }
 
+            const newTimestamp = timestamp === undefined ? getUiTimestamp() : timestamp
             setChatStatesByUuid((prevChatStatesByUuid) => {
                 const prev = prevChatStatesByUuid[targetChatUuid] ?? DEFAULT_CHAT_STATE
-                const newTimestamp = timestamp === undefined ? getTimestampNs() : timestamp
+                if (revision !== undefined && revision < prev.revision) return prevChatStatesByUuid
                 const newText = text === undefined ? prev.text : text
                 const newStatus = status === undefined ? prev.status : status
 
                 if (prev.timestamp <= newTimestamp) {
-                    console.log('Chat state:', {
-                        chatUuid: targetChatUuid,
-                        timestamp: newTimestamp,
-                        text: newText,
-                        prevText: prev.text,
-                        status: newStatus,
-                    })
-
                     return {
                         ...prevChatStatesByUuid,
                         [targetChatUuid]: {
                             timestamp: newTimestamp,
+                            revision: revision ?? prev.revision,
                             text: newText,
                             prevText: prev.text,
                             status: newStatus,

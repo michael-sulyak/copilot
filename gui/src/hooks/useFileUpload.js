@@ -1,118 +1,133 @@
-import {useCallback, useState} from 'react'
-import {getTimestampNs, isImage} from '../utils'
+import {useCallback, useEffect, useRef, useState} from 'react'
+import {apiUrl} from '../api'
+import {getUiTimestamp, isImage} from '../utils'
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024
+const MAX_FILES = 20
 
-function useFileUpload({addNotification, updateMessengerState}) {
+function useFileUpload({addNotification, updateMessengerState, activeChatUuid}) {
     const [attachedFiles, setAttachedFiles] = useState([])
+    const [isUploading, setIsUploading] = useState(false)
+    const attachedFilesRef = useRef([])
+    const pendingUploadsRef = useRef(new Set())
+    const generationRef = useRef(0)
 
     const clearFiles = useCallback(() => {
-        attachedFiles.forEach((file) => {
+        generationRef.current += 1
+        attachedFilesRef.current.forEach((file) => {
             if (file.preview) URL.revokeObjectURL(file.preview)
         })
+        attachedFilesRef.current = []
         setAttachedFiles([])
-    }, [attachedFiles])
+    }, [])
+
+    useEffect(() => {
+        clearFiles()
+    }, [activeChatUuid, clearFiles])
+
+    useEffect(() => {
+        const uploads = pendingUploadsRef.current
+        return () => {
+            generationRef.current += 1
+            uploads.forEach((xhr) => xhr.abort())
+            attachedFilesRef.current.forEach((file) => {
+                if (file.preview) URL.revokeObjectURL(file.preview)
+            })
+        }
+    }, [])
 
     const uploadFiles = useCallback(
-        async ({files, updateMessangerStateText = true, callback}) => {
+        async ({files, updateMessangerStateText = true}) => {
+            if (
+                !files.length ||
+                files.length > MAX_FILES ||
+                files.some((file) => file.size > MAX_FILE_SIZE) ||
+                files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_SIZE
+            ) {
+                throw new Error('Upload up to 20 files, at most 10 MiB each and 50 MiB in total.')
+            }
             const formData = new FormData()
-            files.forEach((file) => {
-                formData.append('files', file)
-            })
-
+            files.forEach((file) => formData.append('files', file))
             const xhr = new XMLHttpRequest()
-            xhr.open('POST', 'http://localhost:20770/upload-file', true)
-
+            pendingUploadsRef.current.add(xhr)
+            xhr.open('POST', apiUrl('/upload-file'), true)
+            xhr.timeout = 120000
+            xhr.responseType = 'json'
+            setIsUploading(true)
+            const progressTimestamp = getUiTimestamp()
             if (updateMessangerStateText) {
-                xhr.upload.onprogress = async (event) => {
+                xhr.upload.onprogress = (event) => {
                     if (event.lengthComputable) {
-                        const percentComplete = Math.round((event.loaded / event.total) * 100)
-
-                        if (percentComplete !== 100) {
-                            await updateMessengerState({text: `File uploading... (${percentComplete}%)`})
+                        updateMessengerState({
+                            text: `File uploading… (${Math.round((event.loaded / event.total) * 100)}%)`,
+                            timestamp: progressTimestamp,
+                        })
+                    }
+                }
+            }
+            try {
+                return await new Promise((resolve, reject) => {
+                    xhr.onload = () => {
+                        if (xhr.status < 200 || xhr.status >= 300) {
+                            reject(new Error(`Upload failed (HTTP ${xhr.status}).`))
+                        } else if (!Array.isArray(xhr.response?.files) || xhr.response.files.length !== files.length) {
+                            reject(new Error('The server returned an invalid upload response.'))
+                        } else {
+                            resolve(xhr.response.files)
                         }
                     }
-                }
-            }
-
-            xhr.onload = async () => {
-                const timestamp = getTimestampNs()
-
+                    xhr.onerror = () => reject(new Error('Upload failed. Check the server connection.'))
+                    xhr.ontimeout = () => reject(new Error('Upload timed out. Please try again.'))
+                    xhr.onabort = () => reject(new Error('Upload cancelled.'))
+                    xhr.send(formData)
+                })
+            } finally {
+                pendingUploadsRef.current.delete(xhr)
+                setIsUploading(pendingUploadsRef.current.size > 0)
                 if (updateMessangerStateText) {
-                    if (xhr.status === 200) {
-                        await updateMessengerState({text: 'Files uploaded successfully', timestamp})
-                    } else {
-                        await updateMessengerState({text: 'Failed to upload files', timestamp})
-                    }
-
-                    setTimeout(() => {
-                        updateMessengerState({text: null, timestamp: timestamp + 1})
-                    }, 2000)
-                } else if (xhr.status !== 200) {
-                    await addNotification('Failed to upload files')
+                    updateMessengerState({text: null, timestamp: progressTimestamp})
                 }
             }
-
-            xhr.onreadystatechange = () => {
-                if (xhr.readyState === 4) {
-                    if (callback) {
-                        callback(xhr.response)
-                    }
-                }
-            }
-            xhr.send(formData)
         },
-        [addNotification, updateMessengerState]
+        [updateMessengerState]
     )
 
-    const onFileUpload = async (e) => {
-        if (!e.target.files) {
-            return
+    const onFileUpload = async (event) => {
+        const files = Array.from(event.target.files ?? [])
+        if (!files.length) return
+        const generation = generationRef.current
+        try {
+            if (attachedFilesRef.current.length + files.length > MAX_FILES) {
+                throw new Error('A message can have at most 20 attachments.')
+            }
+            const uploadedFiles = await uploadFiles({files})
+            if (generation !== generationRef.current) return
+            if (attachedFilesRef.current.length + files.length > MAX_FILES) {
+                throw new Error('A message can have at most 20 attachments.')
+            }
+            const newFiles = files.map((file, index) => ({
+                ...uploadedFiles[index],
+                preview: isImage(file.name) ? URL.createObjectURL(file) : null,
+                type: file.type,
+            }))
+            attachedFilesRef.current = [...attachedFilesRef.current, ...newFiles]
+            setAttachedFiles(attachedFilesRef.current)
+        } catch (error) {
+            await addNotification(error.message)
+        } finally {
+            if ('value' in event.target) event.target.value = ''
         }
-
-        const files = Array.from(e.target.files)
-        const validFiles = files.filter((file) => file.size <= MAX_FILE_SIZE)
-
-        console.log(files)
-
-        if (validFiles.length !== files.length) {
-            await addNotification(`Some files were not uploaded due to size.\nMax size: ${MAX_FILE_SIZE / 1024 / 1024} Mb.`)
-            return
-        }
-
-        await uploadFiles({
-            files: validFiles,
-            callback: async (response) => {
-                const uploadedFiles = JSON.parse(response).files
-                console.log({uploadedFiles})
-
-                const imageUrls = files.map((file) => URL.createObjectURL(file))
-
-                const newFiles = files.map((file, index) => ({
-                    ...uploadedFiles[index],
-                    preview: isImage(file.name) ? imageUrls[index] : null,
-                    type: file.type,
-                }))
-
-                await setAttachedFiles((prevFiles) => [...prevFiles, ...newFiles])
-                // await addNotification(`Uploaded ${validFiles.map((file) => file.name).join(', ')}`)
-            },
-        })
     }
 
     const removeAttachedFile = useCallback((fileId) => {
-        setAttachedFiles((prev) =>
-            prev.filter((file) => {
-                if (file.id === fileId) {
-                    file.preview && URL.revokeObjectURL(file.preview)
-                    return false
-                }
-                return true
-            })
-        )
+        const removed = attachedFilesRef.current.find((file) => file.id === fileId)
+        if (removed?.preview) URL.revokeObjectURL(removed.preview)
+        attachedFilesRef.current = attachedFilesRef.current.filter((file) => file.id !== fileId)
+        setAttachedFiles(attachedFilesRef.current)
     }, [])
 
-    return {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles}
+    return {attachedFiles, isUploading, onFileUpload, removeAttachedFile, clearFiles, uploadFiles}
 }
 
 export default useFileUpload

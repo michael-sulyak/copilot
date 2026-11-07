@@ -1,9 +1,9 @@
 # TODO: Review the logic
 
 import asyncio
+import datetime
 import ipaddress
 import socket
-import threading
 import typing
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -14,12 +14,20 @@ from aiohttp.abc import AbstractResolver
 from duckduckgo_search import DDGS
 from newspaper import Article
 
+from .. import config
+from ..models.openai.base import (
+    AVAILABLE_LLM_MODELS_MAP,
+    BaseLLM,
+    BuiltInLLMTool,
+    FunctionLLMTool,
+    LLMMessage,
+    LLMToolParam,
+    LLMToolParams,
+)
+from ..models.openai.constants import LLMMessageRoles, LLMToolParamTypes
+from ..utils.common import gen_optimized_json
 from .additional_utils import gen_tool_error
 from .base import BaseLLMToolFabric
-from ..models.openai.base import BuiltInLLMTool, FunctionLLMTool, LLMToolParam, AVAILABLE_LLM_MODELS_MAP, BaseLLM, \
-    LLMMessage
-from ..models.openai.constants import LLMToolParamTypes, LLMMessageRoles
-from ..utils.common import gen_optimized_json
 
 
 @dataclass
@@ -124,6 +132,7 @@ class WebSearchTool(BaseLLMToolFabric):
             LLMToolParam(
                 name='queries',
                 type=LLMToolParamTypes.ARRAY,
+                items=LLMToolParams(type=LLMToolParamTypes.STRING),
                 description=(
                     'One to four concise Internet-search queries. Use complementary '
                     'queries rather than minor rewordings of the same query. '
@@ -173,7 +182,7 @@ class WebSearchTool(BaseLLMToolFabric):
     def __init__(self, work_dir: Path) -> None:
         pass
 
-    def run(
+    async def run(
             self,
             *,
             queries: list[str] | None = None,
@@ -228,13 +237,12 @@ class WebSearchTool(BaseLLMToolFabric):
             )
 
         try:
-            sources, search_errors = self._run_async(
-                self._search(
+            async with asyncio.timeout(datetime.timedelta(minutes=5).total_seconds()):
+                sources, search_errors = await self._search(
                     queries=normalized_queries,
                     max_results=max_results,
                     fetch_content=fetch_content,
-                ),
-            )
+                )
         except Exception as error:
             return gen_tool_error(
                 tool=self.description.name,
@@ -430,7 +438,7 @@ class WebSearchTool(BaseLLMToolFabric):
             max_results: int,
     ) -> list[dict[str, typing.Any]]:
         """Perform one synchronous DuckDuckGo search in a worker thread."""
-        return list(DDGS().text(query, max_results=max_results))
+        return list(DDGS(timeout=int(datetime.timedelta(minutes=5).total_seconds())).text(query, max_results=max_results))
 
     @staticmethod
     def _sources_from_search_results(
@@ -641,14 +649,13 @@ class WebSearchTool(BaseLLMToolFabric):
                         f'Response exceeds {cls.MAX_RESPONSE_BYTES} byte limit',
                     )
 
-                body = await response.content.read(
-                    cls.MAX_RESPONSE_BYTES + 1,
-                )
-
-                if len(body) > cls.MAX_RESPONSE_BYTES:
-                    raise ValueError(
-                        f'Response exceeds {cls.MAX_RESPONSE_BYTES} byte limit',
-                    )
+                body = bytearray()
+                async for chunk in response.content.iter_chunked(64 * 1024):
+                    body.extend(chunk)
+                    if len(body) > cls.MAX_RESPONSE_BYTES:
+                        raise ValueError(
+                            f'Response exceeds {cls.MAX_RESPONSE_BYTES} byte limit',
+                        )
 
                 charset = response.charset or 'utf-8'
                 html = body.decode(charset, errors='replace')
@@ -765,47 +772,6 @@ class WebSearchTool(BaseLLMToolFabric):
 
         return addresses
 
-    @staticmethod
-    def _run_async(
-            coroutine: typing.Coroutine[
-                typing.Any,
-                typing.Any,
-                typing.Any,
-            ],
-    ) -> typing.Any:
-        """
-        Run async code from a synchronous LLM-tool interface.
-
-        `asyncio.run()` cannot execute inside an already-running event loop.
-        In that case, create a private event loop inside a worker thread.
-        """
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coroutine)
-
-        result: dict[str, typing.Any] = {}
-        failure: dict[str, BaseException] = {}
-
-        def worker() -> None:
-            try:
-                result['value'] = asyncio.run(coroutine)
-            except BaseException as error:
-                failure['error'] = error
-
-        thread = threading.Thread(
-            target=worker,
-            name='web-search-tool',
-            daemon=True,
-        )
-        thread.start()
-        thread.join()
-
-        if 'error' in failure:
-            raise failure['error']
-
-        return result.get('value')
-
 
 class AIWebSearchTool(BaseLLMToolFabric):
     description = FunctionLLMTool(
@@ -836,11 +802,14 @@ class AIWebSearchTool(BaseLLMToolFabric):
             ),
         ),
     )
-    _llm: BaseLLM
-    _base_llm_model: str = 'GPT middle'  # TODO: Use global settings for it. Or create settings for utils
+    _llm: type[BaseLLM]
 
     def __init__(self, work_dir: Path) -> None:
-        self._llm = AVAILABLE_LLM_MODELS_MAP[self._base_llm_model]
+        model_name = config.AI_WEB_SEARCH_MODEL
+        model = AVAILABLE_LLM_MODELS_MAP.get(model_name)
+        if model is None:
+            raise ValueError(f'Configure ai_web_search_model with a model from models.yaml; got {model_name!r}.')
+        self._llm = model
 
     async def run(self, *, prompt: str) -> str:
         from ..chats.tools import WebSearchTool as OPENAIWebSearchTool
@@ -848,11 +817,16 @@ class AIWebSearchTool(BaseLLMToolFabric):
         result = await self._llm.process(
             messages=(
                 LLMMessage(
-                    role=LLMMessageRoles.ASSISTANT,
+                    role=LLMMessageRoles.USER,
                     content=prompt,
                 ),
             ),
             tools=(OPENAIWebSearchTool,),
         )
 
-        return result.content or ''
+        content = result.content or ''
+
+        if result.annotations:
+            content += '\n\nSources:\n' + '\n'.join(result.annotations)
+
+        return content

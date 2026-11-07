@@ -9,23 +9,30 @@ function Header({settings, clearChat, insertText}) {
             </div>
 
             <div className="actions d-flex align-items-center justify-content-end gap-2">
-                <OverlayTrigger placement="bottom" overlay={<Tooltip id="tt-clear">Clear conversation</Tooltip>}>
+                <OverlayTrigger placement="bottom" overlay={<Tooltip>Clear conversation</Tooltip>}>
                     <Button variant="outline-primary" onClick={clearChat} aria-label="Clear conversation">
                         <i className="fa-solid fa-eraser" aria-hidden="true"></i>
                     </Button>
                 </OverlayTrigger>
 
-                <Dropdown align="end">
-                    <Dropdown.Toggle variant="outline-primary" aria-label="Insert prompt">
-                        <i className="fa-solid fa-folder-closed" aria-hidden="true"></i>
-                    </Dropdown.Toggle>
+                <Dropdown className="chat-dropdown" align="end">
+                    <OverlayTrigger placement="bottom" overlay={<Tooltip>Insert prompt</Tooltip>}>
+                        <Dropdown.Toggle variant="outline-primary" aria-label="Insert prompt">
+                            <i className="fa-solid fa-folder-closed" aria-hidden="true"></i>
+                        </Dropdown.Toggle>
+                    </OverlayTrigger>
 
                     <Dropdown.Menu>
-                        {settings.prompts?.map((prompt) => (
-                            <Dropdown.Item key={prompt.name} onClick={() => insertText(prompt.text)}>
-                                {prompt.name}
-                            </Dropdown.Item>
-                        ))}
+                        <Dropdown.Header>Insert a saved prompt</Dropdown.Header>
+                        {settings.prompts?.length ? (
+                            settings.prompts.map((prompt) => (
+                                <Dropdown.Item as="button" key={prompt.name} onClick={() => insertText(prompt.text)}>
+                                    <span className="chat-menu-label">{prompt.name}</span>
+                                </Dropdown.Item>
+                            ))
+                        ) : (
+                            <Dropdown.Item disabled>No saved prompts</Dropdown.Item>
+                        )}
                     </Dropdown.Menu>
                 </Dropdown>
             </div>

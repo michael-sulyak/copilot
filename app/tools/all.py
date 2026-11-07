@@ -6,7 +6,8 @@ from .files import (
     ReadFilesTool,
     SearchFilesTool,
 )
-from .web_searching import WebSearchTool, AIWebSearchTool
+from .web_searching import AIWebSearchTool, WebSearchTool
+
 
 TOOLS = (
     ReadFilesTool,

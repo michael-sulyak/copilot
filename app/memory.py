@@ -5,7 +5,7 @@ from .chats.base import Roles
 
 
 if typing.TYPE_CHECKING:
-    from .models.openai.base import BaseLLMMessage, LLMMessage
+    from .models.openai.base import BaseLLMMessage
 
 
 class BaseMemory(abc.ABC):
@@ -22,11 +22,11 @@ class BaseMemory(abc.ABC):
             self.add_message(message)
 
     @abc.abstractmethod
-    def pop_message(self) -> 'LLMMessage':
+    def pop_message(self) -> 'BaseLLMMessage':
         pass
 
     @abc.abstractmethod
-    def get_buffer(self) -> list['LLMMessage']:
+    def get_buffer(self) -> list['BaseLLMMessage']:
         pass
 
     @abc.abstractmethod
@@ -41,8 +41,13 @@ class Memory(BaseMemory):
     _context: typing.Optional['BaseLLMMessage'] = None
 
     def __init__(self, *, max_user_messages: int = float('inf')) -> None:
+        if max_user_messages < 1:
+            raise ValueError('max_user_messages must be at least 1.')
+
         self._max_user_messages = max_user_messages
         self._messages = []
+        self._count_of_user_messages = 0
+        self._context = None
 
     def add_context(self, message: 'BaseLLMMessage') -> None:
         self._context = message
@@ -59,6 +64,8 @@ class Memory(BaseMemory):
                 self._reduce_messages()
 
     def pop_message(self) -> 'BaseLLMMessage':
+        from .models.openai.base import LLMMessage
+
         if isinstance(self._messages[-1], LLMMessage) and self._messages[-1].role == Roles.USER:
             self._count_of_user_messages -= 1
 
@@ -68,13 +75,15 @@ class Memory(BaseMemory):
         if self._context:
             return [self._context, *self._messages]
 
-        return self._messages
+        return list(self._messages)
 
     def clear(self) -> None:
         self._messages.clear()
         self._count_of_user_messages = 0
 
     def _reduce_messages(self) -> None:
+        from .models.openai.base import LLMMessage
+
         first_message_index = None
         remove_before = None
         for i, message in enumerate(self._messages):
@@ -85,7 +94,7 @@ class Memory(BaseMemory):
                     remove_before = i
                     break
 
-        self._messages = self._messages[remove_before:]
+        self._messages = self._messages[remove_before:] if remove_before is not None else []
         self._count_of_user_messages -= 1
 
 # class FactualMemory(BaseMemory):

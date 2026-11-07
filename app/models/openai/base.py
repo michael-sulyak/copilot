@@ -3,6 +3,7 @@ import asyncio
 import base64
 import dataclasses
 import datetime
+import inspect
 import json
 import logging
 import typing
@@ -29,7 +30,7 @@ from pydantic import BaseModel
 
 from ... import config
 from ...memory import BaseMemory, Memory
-from ...utils.common import chunk_generator, gen_optimized_json
+from ...utils.common import chunk_generator
 from ...utils.local_file_storage import File
 from .constants import NOTSET, LLMContentTypes, LLMMessageRoles, LLMToolParamTypes
 from .utils import (
@@ -204,7 +205,7 @@ class LLMToolCallTracker:
     result: str | None = None
     is_done: bool = False
 
-    def __init__(self, *, call: LLMFunctionCall) -> call:
+    def __init__(self, *, call: LLMFunctionCall) -> None:
         self.call = call
 
     def set_error(self, text: str) -> None:
@@ -241,7 +242,7 @@ class LLMToolCallTracker:
     def __str__(self) -> str:
         return format_tool_chat_message(
             tool_name=self.call.name,
-            stage=self.stage,
+            stage='error' if self.error is not None else ('result' if self.is_done else 'call'),
             arguments=self.call.raw_args,
             result=self.result,
             error=self.error,
@@ -268,7 +269,7 @@ class LLMToolCallAggregatedTracker:
     def add_tracker(self, tracker: LLMToolCallTracker) -> None:
         self._trackers.append(tracker)
 
-    def dump(self) -> typing.Sequence[dict]:
+    def dump(self) -> dict:
         return {
             'status': self.status,
             'tool_calls': tuple(tracker.dump() for tracker in self._trackers),
@@ -336,6 +337,9 @@ class LLMToolParams:
 
                     if parameter.required:
                         result['required'].append(parameter.name)
+
+        elif self.type == LLMToolParamTypes.ARRAY and self.items is not None:
+            result['items'] = self.items.dump()
 
         return result
 
@@ -471,7 +475,8 @@ class BaseLLM:
         )
 
         logging.info('Send messages to %s:', cls.model_name)
-        logging.info(messages)
+        logging.info('Request contains %s messages.', len(messages))
+        logging.debug(messages)
 
         count_of_tokens = cls.count_tokens(messages)
 
@@ -491,7 +496,10 @@ class BaseLLM:
             use_background_processing = False
         else:
             response = await cls._make_raw_request(
-                lambda: cls.config.client.responses.create(**llm_request.dump(), background=use_background_processing),
+                lambda: cls.config.client.responses.create(
+                    **llm_request.dump(),
+                    background=use_background_processing,
+                ),
             )
 
         if use_background_processing:
@@ -504,7 +512,9 @@ class BaseLLM:
                 while response.status in {'queued', 'in_progress'}:
                     logging.info(f'Current status of background request: "{response.status}"')
                     await asyncio.sleep(next(iter_for_delay))
-                    response = await cls.config.client.responses.retrieve(response.id)
+                    response = await cls.config.client.responses.retrieve(
+                        response.id,
+                    )
 
                     if (
                             (
@@ -512,13 +522,13 @@ class BaseLLM:
                             or (
                             response.status == 'in_progress' and datetime.datetime.now() - started_at >= config.MAX_TIME_TO_WAIT_IN_PROGRESS)
                     ):
-                        raise TaskIsStuck
+                        raise TaskIsStuck('The model request exceeded its queue or processing time limit. Please try again.')
 
                 logging.info(f'Last status of background request: "{response.status}"')
 
             try:
                 await cls._make_raw_request(_check_response)
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, TaskIsStuck):
                 # Cancelling local polling does not cancel a Responses API job
                 # that is already running remotely. Best-effort remote
                 # cancellation makes close_chat() stop that work as well.
@@ -538,7 +548,7 @@ class BaseLLM:
 
                 raise
 
-        logging.info('Response: %s', response)
+        logging.debug('Response %s has status %s.', response.id, response.status)
 
         if response.error:
             raise openai.OpenAIError(response.error.message)
@@ -575,7 +585,7 @@ class BaseLLM:
                     call_is_valid = False
                     func_args = None
                 else:
-                    call_is_valid = True
+                    call_is_valid = isinstance(func_args, dict)
 
                 llm_tool_calls.append(LLMFunctionCall(
                     name=output_item.name,
@@ -610,8 +620,15 @@ class BaseLLM:
         else:
             parsed_content = response_format.model_validate_json(content)
 
-        if cls.clean_responses or (cls.clean_responses is None and config.CLEAN_RESPONSES):
-            task = asyncio.create_task(cls.config.client.responses.delete(response.id))
+        if not cls.use_old_api and (cls.clean_responses or (cls.clean_responses is None and config.CLEAN_RESPONSES)):
+            async def delete_response() -> None:
+                try:
+                    async with asyncio.timeout(60):
+                        await cls.config.client.responses.delete(response.id)
+                except Exception:
+                    logging.warning('Failed to delete response %s.', response.id, exc_info=True)
+
+            task = asyncio.create_task(delete_response())
             cls._background_tasks.add(task)
             task.add_done_callback(cls._background_tasks.discard)
 
@@ -650,9 +667,15 @@ class BaseLLM:
         - appends native function_call_output items
         - repeats until assistant returns text or `stop_when` says to stop
 
-        For Responses API models, this preserves reasoning items by feeding
-        `response.output` back into the next request exactly as returned.
+        History stores assistant text and explicit function calls/results, not
+        raw response items that may reference unavailable server-side item IDs.
         """
+
+        if cls.use_old_api:
+            raise RuntimeError('Old API is not supported for using tools.')
+
+        if max_steps < 1:
+            raise ValueError('max_steps must be at least 1.')
 
         if memory is None:
             memory = Memory()
@@ -668,6 +691,7 @@ class BaseLLM:
             for tool in tools
         }
         aggregated_tracker = LLMToolCallAggregatedTracker()
+        annotation_urls: list[str] = []
 
         for step in range(1, max_steps + 1):
             buffer = memory.get_buffer()
@@ -692,14 +716,12 @@ class BaseLLM:
 
             total_cost += step_response.cost
             total_tokens += step_response.total_tokens
+            annotation_urls.extend(step_response.annotations or ())
             last_raw_response = step_response.original_response
 
-            if cls.use_old_api:
-                raise RuntimeError('Old API is not supported for using tools.')
-
             if step_response.tool_calls:
+                stop_requested = False
                 memory.add_messages(step_response.tool_calls)
-
                 for call in step_response.tool_calls:
                     tool_trace.append(call)
 
@@ -737,7 +759,7 @@ class BaseLLM:
 
                     try:
                         maybe_coro = exec_fn(call)
-                        result_value = await maybe_coro if asyncio.iscoroutine(maybe_coro) else maybe_coro
+                        result_value = await maybe_coro if inspect.isawaitable(maybe_coro) else maybe_coro
                     except Exception:
                         logging.exception(f'Exception while executing tool "{call.name}"')
 
@@ -764,7 +786,7 @@ class BaseLLM:
                         memory.add_message(
                             LLMFunctionCallOutput(
                                 call_id=call.call_id,
-                                output=gen_optimized_json(result_value),
+                                output=serialize_tool_output(result_value),
                             ),
                         )
 
@@ -774,34 +796,41 @@ class BaseLLM:
                             await logger(aggregated_tracker)
 
                     if stop_when and stop_when(call, result_value):
-                        # TODO: Check & update logic of `stop_when`
-                        final_turn = await cls.process(
-                            messages=memory.get_buffer(),
-                            temperature=temperature,
-                            top_p=top_p,
-                            check_total_length=check_total_length,
-                            tools=tools,
-                            response_format=response_format,
-                            reasoning_effort=reasoning_effort,
-                            use_background_processing=True,
-                        )
-                        total_cost += final_turn.cost
-                        total_tokens += final_turn.total_tokens
+                        stop_requested = True
 
-                        aggregated_tracker.mark_as_done()
+                if stop_requested:
+                    # Complete every call in the batch before requesting a final
+                    # answer; otherwise the next request contains orphaned calls.
+                    final_turn = await cls.process(
+                        messages=memory.get_buffer(),
+                        temperature=temperature,
+                        top_p=top_p,
+                        check_total_length=check_total_length,
+                        response_format=response_format,
+                        reasoning_effort=reasoning_effort,
+                        use_background_processing=True,
+                    )
+                    total_cost += final_turn.cost
+                    total_tokens += final_turn.total_tokens
+                    annotation_urls.extend(final_turn.annotations or ())
+                    memory.add_message(LLMMessage(
+                        role=LLMMessageRoles.ASSISTANT,
+                        content=final_turn.content or '',
+                    ))
+                    aggregated_tracker.mark_as_done()
+                    if logger:
+                        await logger(aggregated_tracker)
 
-                        if logger:
-                            await logger(aggregated_tracker)
-
-                        return LLMResponse(
-                            content=final_turn.content,
-                            parsed_content=final_turn.parsed_content if response_format is not NOTSET else None,
-                            tool_calls=tool_trace,
-                            duration=datetime.datetime.now() - started_at,
-                            cost=total_cost,
-                            total_tokens=total_tokens,
-                            original_response=final_turn.original_response,
-                        )
+                    return LLMResponse(
+                        content=final_turn.content,
+                        parsed_content=final_turn.parsed_content,
+                        tool_calls=tool_trace,
+                        duration=datetime.datetime.now() - started_at,
+                        cost=total_cost,
+                        total_tokens=total_tokens,
+                        original_response=final_turn.original_response,
+                        annotations=tuple(dict.fromkeys(annotation_urls)) or None,
+                    )
 
                 continue
 
@@ -838,6 +867,7 @@ class BaseLLM:
                     cost=total_cost,
                     total_tokens=total_tokens,
                     original_response=last_raw_response or step_response.original_response,
+                    annotations=tuple(dict.fromkeys(annotation_urls)) or None,
                 )
 
         aggregated_tracker.mark_as_done()
@@ -853,6 +883,7 @@ class BaseLLM:
             cost=total_cost,
             total_tokens=total_tokens,
             original_response=last_raw_response,
+            annotations=tuple(dict.fromkeys(annotation_urls)) or None,
         )
 
     @classmethod
@@ -888,7 +919,7 @@ class BaseLLM:
                 response = await func()
             except openai.APITimeoutError:
                 raise
-            except (openai.RateLimitError, openai.InternalServerError, TaskIsStuck) as e:
+            except (openai.RateLimitError, openai.InternalServerError) as e:
                 logging.warning(e, exc_info=True)
 
                 if attempt >= cls.max_retries:
@@ -913,6 +944,9 @@ class BaseLLM:
                     logging.info('Server blocked the request due to too many requests.')
                     logging.info('Sleep %s seconds before retrying', backoff)
                     await asyncio.sleep(backoff)
+
+                    if attempt < cls.max_retries:
+                        continue
 
                 break
 
@@ -987,8 +1021,8 @@ class Embedding:
                 model=cls.model_name,
             )
 
-            embedding_response.vectors.extend(map(lambda x: x['embedding'], response['data']))
-            embedding_response.cost += response['usage']['total_tokens'] * cls.price
+            embedding_response.vectors.extend(item.embedding for item in response.data)
+            embedding_response.cost += response.usage.total_tokens * cls.price
 
         return embedding_response
 

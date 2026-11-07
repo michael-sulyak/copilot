@@ -10,3 +10,5 @@ host_name: "localhost"
 port: 20770
 uploads_dir: "/tmp"
 clean_responses: false
+ai_web_search_model: "GPT5 mini"
+allowed_origins: ""

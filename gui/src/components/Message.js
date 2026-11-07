@@ -1,10 +1,46 @@
 import React, {Fragment, useEffect, useRef, useState} from 'react'
 import Markdown from './Markdown'
 import {Button, OverlayTrigger, Tooltip} from 'react-bootstrap'
+import {API_BASE_URL, apiUrl} from '../api'
+import {isImage} from '../utils'
+
+function MessageAttachment({file}) {
+    let url = null
+    if (file.url) {
+        try {
+            const resolved = new URL(apiUrl(file.url))
+            if (resolved.origin === API_BASE_URL.origin && ['http:', 'https:'].includes(resolved.protocol)) {
+                url = resolved.href
+            }
+        } catch {
+            // Keep the filename visible even if an attachment URL is unavailable.
+        }
+    }
+
+    const content = (
+        <>
+            {url && isImage(file.name) && <img src={url} alt={file.name} loading="lazy" />}
+            <span className="file-attachment-body">{file.name}</span>
+        </>
+    )
+
+    return (
+        <div className="file-attachment">
+            {url ? (
+                <a href={url} target="_blank" rel="noopener noreferrer">
+                    {content}
+                </a>
+            ) : (
+                content
+            )}
+        </div>
+    )
+}
 
 function Message({message, addNotification: _addNotification, callButtonCallback, deleteMessage}) {
     const [copied, setCopied] = useState(false)
     const copyTimerRef = useRef(null)
+    const attachments = message.attachments ?? message.__ui__?.attachments ?? []
 
     useEffect(() => {
         return () => {
@@ -38,7 +74,7 @@ function Message({message, addNotification: _addNotification, callButtonCallback
         <div className="message-controllers">
             <OverlayTrigger
                 placement={message.from === 'user' ? 'left' : 'right'}
-                overlay={<Tooltip id="tt-clear">{copied ? 'Copied' : 'Copy'}</Tooltip>}
+                overlay={<Tooltip>{copied ? 'Copied' : 'Copy'}</Tooltip>}
             >
                 <Button type="button" onClick={copyText}>
                     <i className={`fa-solid ${copied ? 'fa-check' : 'fa-copy'}`} />
@@ -75,15 +111,15 @@ function Message({message, addNotification: _addNotification, callButtonCallback
         <div className={`message d-flex ${message.from === 'user' ? 'user-message' : 'received-message'}`}>
             {message.from === 'user' ? controllers : <Fragment />}
             <div style={{minWidth: 0}}>
-                <div className="message-text">
-                    <Markdown content={message.body.content} />
-                </div>
-                {message.__ui__ && message.__ui__.attachments && (
+                {message.body.content && (
+                    <div className="message-text">
+                        <Markdown content={message.body.content} />
+                    </div>
+                )}
+                {attachments.length > 0 && (
                     <div className="file-attachments">
-                        {message.__ui__.attachments.map((file, index) => (
-                            <div className="file-attachment" key={index}>
-                                <div className="file-attachment-body">{file.name}</div>
-                            </div>
+                        {attachments.map((file, index) => (
+                            <MessageAttachment key={`${file.id ?? 'attachment'}-${index}`} file={file} />
                         ))}
                     </div>
                 )}

@@ -1,6 +1,8 @@
 import abc
+import asyncio
 import dataclasses
 import datetime
+import logging
 import time
 import typing
 import uuid
@@ -125,14 +127,20 @@ class Conversation:
 
     rpc_client: aiohttp_rpc.WSJSONRPCClient
     _opened_chat: 'OpenedChat'
-    _chat_status: Statuses.IDLE
+    _chat_status: str
+    _status_text: str | None
+    _revision: int
 
     def __init__(self, *, rpc_client: aiohttp_rpc.WSJSONRPCClient, opened_chat: 'OpenedChat') -> None:
         self.rpc_client = rpc_client
         self._opened_chat = opened_chat
+        self._chat_status = Statuses.IDLE
+        self._status_text = None
+        self._revision = 0
 
     async def answer(self, answer: BaseAnswer) -> None:
-        output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid))
+        self._revision += 1
+        output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid), revision=self._revision)
 
         if isinstance(output_obj, OutputMessage | OutputToolCall):
             if output_obj.uuid in self._opened_chat.history:
@@ -140,25 +148,35 @@ class Conversation:
 
             self._opened_chat.history[output_obj.uuid] = output_obj
 
-        await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
+        await self._deliver('process_message', output_obj.model_dump(by_alias=True))
 
-    async def update_message(self, answer: Message) -> None:
-        output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid))
+    def get_status(self) -> dict:
+        return {'status': self._chat_status, 'text': self._status_text, 'revision': self._revision}
+
+    async def update_message(self, answer: Message | ToolCall) -> None:
+        self._revision += 1
+        output_obj = answer.to_output_obj(chat_uuid=str(self._opened_chat.uuid), revision=self._revision)
         self._opened_chat.history[output_obj.uuid] = output_obj
-        await self.rpc_client.notify('process_message', output_obj.model_dump(by_alias=True))
+        await self._deliver('process_message', output_obj.model_dump(by_alias=True))
 
     async def notify(self, text: str) -> None:
-        await self.rpc_client.notify('show_notification', text)
+        await self._deliver('show_notification', text)
+
+    def mark_loading(self) -> None:
+        self._chat_status = Statuses.LOADING
+        self._status_text = None
 
     async def start(self) -> None:
-        self._chat_status = Statuses.LOADING
+        self.mark_loading()
         await self.answer(Action(name=Actions.SET_CHAT_STATUS, payload={'status': self._chat_status, 'text': None}))
 
     async def finish(self) -> None:
         self._chat_status = Statuses.IDLE
+        self._status_text = None
         await self.answer(Action(name=Actions.SET_CHAT_STATUS, payload={'status': self._chat_status, 'text': None}))
 
     async def set_text_status(self, text: str) -> None:
+        self._status_text = text
         await self.answer(Action(name=Actions.SET_CHAT_STATUS, payload={'status': self._chat_status, 'text': text}))
 
     async def reset_text_status(self) -> None:
@@ -170,11 +188,20 @@ class Conversation:
     async def exception(self, e: Exception) -> None:
         await self.answer(Message(content=f'**UNEXPECTED ERROR:**\n```\n{e!s}\n```'))
 
+    async def _deliver(self, method: str, payload: typing.Any) -> None:
+        try:
+            async with asyncio.timeout(5):
+                await self.rpc_client.notify(method, payload)
+        except Exception:
+            # Durable in-session state is updated before delivery. A disconnected
+            # GUI can recover it without aborting an already-running agent.
+            logging.warning('Could not deliver %s to the GUI; state is available on reconnect.', method, exc_info=True)
+
 
 class OpenedChat:
     uuid: uuid.UUID
     name: str
-    history: OrderedDict[str, InputMessage | OutputMessage]
+    history: OrderedDict[str, InputMessage | OutputMessage | OutputToolCall]
     original_chat: typing.Union['BaseChat', LazyChat]
     chat: 'BaseChat'
     conversation: Conversation
@@ -237,6 +264,9 @@ class BaseChat:
         # todo: replace `get_welcome_message` -> `welcome` and use discussion
         return None
 
+    def can_handle_callback_while_processing(self, callback: str) -> bool:
+        return False
+
     async def handle_callback(self, request: Request) -> None:
         await request.conversation.answer(Message(content='Not implemented.'))
 
@@ -262,5 +292,4 @@ class ChatCallbackHandlerMixin:
         return False
 
     def _register_once_time_callback_handler(self, name: str, func: typing.Callable[[Request], None]) -> None:
-        # TODO: Refactor using of it
         self._once_time_callback_handlers_map[name] = func

@@ -66,15 +66,17 @@ function MermaidBlock({code}) {
                 if (await mermaid.parse(code, {suppressErrors: true})) {
                     result = (await mermaid.render(id, code)).svg
                 } else {
-                    result = `🚨 ERROR: Mermaid render error\n\n${code}`
-                    console.error(`Mermaid render error: ${code}`)
+                    if (!canceled && ref.current) {
+                        ref.current.textContent = `Mermaid render error\n\n${code}`
+                    }
+                    return
                 }
 
                 if (!canceled && ref.current) {
                     ref.current.innerHTML = result
                 }
             } catch (e) {
-                if (canceled && ref.current) {
+                if (!canceled && ref.current) {
                     ref.current.innerText = 'Mermaid render error: ' + (e?.message || e)
                 }
             }

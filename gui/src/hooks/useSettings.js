@@ -1,34 +1,39 @@
 import {useCallback, useEffect, useState} from 'react'
+import {callRpc, subscribeConnection} from '../api'
 
-function useSettings({addNotification, processRpcError}) {
+function useSettings({processRpcError}) {
     const [settings, setSettings] = useState({})
 
     const getSettings = useCallback(
-        async ({callback = null}) => {
-            const rpcClient = window.rpcClient
-
+        async ({callback = null} = {}) => {
             try {
-                const newSettings = await rpcClient.call('get_settings', []).catch(processRpcError)
+                const newSettings = await callRpc('get_settings')
 
                 if (!newSettings) {
                     return
                 }
 
+                if (newSettings.protocol_version !== 1) {
+                    throw new Error('GUI/backend protocol mismatch. Rebuild the GUI and restart the backend together.')
+                }
                 setSettings(newSettings)
-                console.log('Settings:', newSettings)
 
                 if (callback) {
                     callback(newSettings)
                 }
             } catch (err) {
-                addNotification('Error fetching settings: ' + err)
+                await processRpcError(err)
             }
         },
-        [addNotification, processRpcError]
+        [processRpcError]
     )
 
     useEffect(() => {
-        getSettings({})
+        const refresh = () => {
+            if (window.rpcClient.ready) getSettings()
+        }
+        refresh()
+        return subscribeConnection(refresh)
     }, [getSettings])
 
     return {settings, getSettings}

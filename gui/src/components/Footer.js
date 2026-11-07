@@ -76,6 +76,29 @@ const handleFilesFromEvent = ({event, dataSource, onFileUpload}) => {
     }
 }
 
+function ChatStatus({chatState}) {
+    const nodeRef = useRef(null)
+
+    return (
+        <CSSTransition
+            in={!!chatState.text}
+            mountOnEnter
+            unmountOnExit
+            classNames="chat-status-transition"
+            nodeRef={nodeRef}
+            timeout={2000}
+        >
+            <div className="chat-status-container" ref={nodeRef}>
+                <div className="chat-status">
+                    <div className="chat-status-content">
+                        <i className="fa-solid fa-circle-info"></i> {chatState.text || chatState.prevText}
+                    </div>
+                </div>
+            </div>
+        </CSSTransition>
+    )
+}
+
 function Footer({
     handleInputChange,
     inputValue,
@@ -92,7 +115,6 @@ function Footer({
     startRecording,
     stopRecording,
 }) {
-    const chatStatusContainerRef = useRef()
     const pasteHandlerRef = useRef()
 
     const handlePaste = useCallback(
@@ -146,22 +168,7 @@ function Footer({
 
     return (
         <Card.Footer className="chat-footer flex-shrink-1" onDrop={handleDrop} onDragOver={handleDragOver}>
-            <CSSTransition
-                in={!!chatState.text}
-                mountOnEnter
-                unmountOnExit
-                classNames="chat-status-transition"
-                nodeRef={chatStatusContainerRef}
-                timeout={2000}
-            >
-                <div className="chat-status-container" ref={chatStatusContainerRef}>
-                    <div className="chat-status">
-                        <div className="chat-status-content">
-                            <i className="fa-solid fa-circle-info"></i> {chatState.text || chatState.prevText}
-                        </div>
-                    </div>
-                </div>
-            </CSSTransition>
+            <ChatStatus key={activeChat?.uuid ?? 'none'} chatState={chatState} />
             <div className="input-group">
                 <textarea
                     className="form-control"
@@ -171,20 +178,27 @@ function Footer({
                     onChange={handleInputChange}
                     value={inputValue}
                     ref={textareaRef}
-                    disabled={isLoading}
+                    aria-label="Message"
                 />
                 <Button
                     type="submit"
                     className={recordingState.status === 'off' ? 'input-btn' : 'input-btn active'}
                     onClick={recordingState.status === 'off' ? startRecording : stopRecording}
-                    disabled={recordingState.status === 'processing'}
+                    disabled={recordingState.status === 'processing' || (isLoading && recordingState.status === 'off')}
+                    aria-label={recordingState.status === 'off' ? 'Record audio' : 'Stop recording'}
                 >
                     <i className="fa-solid fa-microphone"></i>
                 </Button>
                 {activeChat?.files_are_supported ? (
                     <Fragment>
                         <input type="file" onChange={onFileUpload} multiple style={{display: 'none'}} ref={fileInputRef} />
-                        <Button type="submit" className="input-btn" onClick={() => fileInputRef.current.click()}>
+                        <Button
+                            type="button"
+                            className="input-btn"
+                            disabled={isLoading}
+                            aria-label="Attach files"
+                            onClick={() => fileInputRef.current.click()}
+                        >
                             <i className="fa-solid fa-paperclip"></i>
                         </Button>
                     </Fragment>
@@ -195,6 +209,7 @@ function Footer({
                     type="submit"
                     className="btn"
                     id="send-btn"
+                    aria-label="Send message"
                     onClick={sendMessage}
                     disabled={isLoading || recordingState.status !== 'off'}
                 >

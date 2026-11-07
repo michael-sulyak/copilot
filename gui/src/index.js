@@ -5,40 +5,40 @@ import 'katex/dist/katex.min.css'
 import './style.css'
 import Messenger from './Messenger'
 import {Client as RpcClient} from 'rpc-websockets'
+import {rpcUrl} from './api'
 
 function connectToServer() {
-    const rpcClient = new RpcClient('ws://localhost:20770/rpc')
+    const rpcClient = new RpcClient(rpcUrl(), {reconnect: true, reconnect_interval: 1000, max_reconnects: 0})
+    const root = ReactDOM.createRoot(document.getElementById('root'))
     window.rpcClient = rpcClient
+    root.render(
+        <React.StrictMode>
+            <Messenger />
+        </React.StrictMode>
+    )
+    document.querySelector('.main-loader')?.remove()
 
-    rpcClient.on('open', (event) => {
-        const root = ReactDOM.createRoot(document.getElementById('root'))
-
-        root.render(
-            <React.StrictMode>
-                <Messenger />
-            </React.StrictMode>
-        )
-
-        document.querySelector('.main-loader')?.remove()
+    rpcClient.on('open', () => {
+        window.dispatchEvent(new Event('rpc-connection'))
     })
 
     rpcClient.on('close', (event) => {
-        console.log(`Socket is closed. Reconnect will be attempted in 1 second.\n${event.reason}`)
+        console.info('Socket closed. Reconnecting…', event)
+        window.dispatchEvent(new Event('rpc-connection'))
     })
 
     rpcClient.on('error', (event) => {
-        alert(`Socket encountered error: ${event.message}\nClosing socket`)
-
-        rpcClient.close()
+        console.error('WebSocket error:', event)
     })
 
     rpcClient.on('show_alert', (message) => {
-        alert(message)
+        alert(Array.isArray(message) ? message[0] : message)
     })
 
-    window.addEventListener('beforeunload', async (event) => {
-        await rpcClient.call('finish', [])
-        await rpcClient.close()
+    // A reload or transient disconnection must not shut down the backend.
+    window.addEventListener('pagehide', () => rpcClient.close())
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) rpcClient.connect()
     })
 }
 

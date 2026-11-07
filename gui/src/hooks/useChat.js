@@ -1,4 +1,5 @@
-import {useCallback, useEffect} from 'react'
+import {useCallback, useEffect, useRef} from 'react'
+import {callRpc, subscribeConnection} from '../api'
 
 function useChat({
     updateMessengerState,
@@ -11,66 +12,109 @@ function useChat({
     activeChat,
     setActiveChat,
 }) {
-    const getHistory = useCallback(async () => {
-        if (activeChat) {
-            const rpcClient = window.rpcClient
-            const history = await rpcClient.call('get_history', [activeChat.uuid]).catch(processRpcError)
-            console.log('History:', history)
-            setMessages(history ?? [], activeChat.uuid)
+    const historyRequestRef = useRef(0)
+    const chatUuid = activeChat?.uuid
+
+    useEffect(() => {
+        let disposed = false
+        const refresh = async () => {
+            if (!chatUuid || !window.rpcClient.ready) return
+            const requestId = ++historyRequestRef.current
+            const pendingEvents = []
+            const collect = ([event]) => {
+                if (event?.chat_uuid === chatUuid) pendingEvents.push(event)
+            }
+            const client = window.rpcClient
+            client.on('process_message', collect)
+            try {
+                const snapshot = await callRpc('get_chat_state', [chatUuid])
+                if (disposed || requestId !== historyRequestRef.current) return
+                const history = new Map(snapshot.history.map((message) => [message.uuid, message]))
+                let state = {status: snapshot.status, text: snapshot.text, revision: snapshot.revision}
+                // Notifications can arrive while the snapshot RPC is in flight.
+                for (const event of pendingEvents) {
+                    if (event.revision <= snapshot.revision) continue
+                    if (event.type === 'message' || event.type === 'tool_call') history.set(event.uuid, event)
+                    if (event.type === 'action' && event.name === 'set_chat_status') state = {...event.payload, revision: event.revision}
+                }
+                setMessages((previous) => {
+                    // A user may send while the snapshot is in flight. Keep
+                    // optimistic user messages not yet included in that snapshot.
+                    const merged = new Map(history)
+                    for (const message of previous) {
+                        if (message.from === 'user' && !merged.has(message.uuid)) merged.set(message.uuid, message)
+                    }
+                    return [...merged.values()]
+                }, chatUuid)
+                updateMessengerState({...state, chatUuid})
+            } catch (error) {
+                if (!disposed) processRpcError(error)
+            } finally {
+                client.off('process_message', collect)
+            }
         }
-    }, [setMessages, processRpcError, activeChat])
+        refresh()
+        const unsubscribe = subscribeConnection(refresh)
+        return () => {
+            disposed = true
+            unsubscribe()
+        }
+    }, [chatUuid, settings, setMessages, updateMessengerState, processRpcError])
 
     const openChat = useCallback(
         async (chatName) => {
-            const rpcClient = window.rpcClient
-
-            await clearFiles()
-            await rpcClient.call('open_chat', [chatName]).catch(processRpcError)
-            await getSettings({
-                callback: (newSettings) => {
-                    const openedChats = newSettings?.opened_chats ?? []
-                    setActiveChat(openedChats[openedChats.length - 1] ?? null)
-                },
-            })
+            try {
+                const chat = await callRpc('open_chat', [chatName])
+                clearFiles()
+                await getSettings({callback: () => setActiveChat(chat)})
+            } catch (error) {
+                await processRpcError(error)
+            }
         },
-        [getSettings, clearFiles, processRpcError, setActiveChat]
+        [clearFiles, getSettings, setActiveChat, processRpcError]
     )
 
     const closeChat = useCallback(
-        async (chatUuid) => {
-            const rpcClient = window.rpcClient
-            const activeChatIndex = Math.max(0, settings.opened_chats.indexOf(activeChat))
-            await updateMessengerState({status: 'loading', text: null, chatUuid})
-            await clearFiles()
-            await rpcClient.call('close_chat', [chatUuid]).catch(processRpcError)
-            removeChatMessages(chatUuid)
-            await getSettings({
-                callback: (newSettings) => {
-                    const openedChats = newSettings.opened_chats
-
-                    if (activeChat?.uuid === chatUuid) {
-                        setActiveChat(openedChats[Math.min(openedChats.length - 1, activeChatIndex)] ?? null)
-                    }
-                },
-            })
-            await updateMessengerState({status: 'idle', text: null, chatUuid})
+        async (targetUuid) => {
+            const activeIndex = Math.max(
+                0,
+                (settings.opened_chats ?? []).findIndex((chat) => chat.uuid === activeChat?.uuid)
+            )
+            try {
+                await callRpc('close_chat', [targetUuid], 60000)
+                historyRequestRef.current += 1
+                removeChatMessages(targetUuid)
+                if (activeChat?.uuid === targetUuid) clearFiles()
+                await getSettings({
+                    callback: (next) => {
+                        if (activeChat?.uuid === targetUuid) {
+                            setActiveChat(next.opened_chats[Math.min(next.opened_chats.length - 1, activeIndex)] ?? null)
+                        }
+                    },
+                })
+                return true
+            } catch (error) {
+                await processRpcError(error)
+                return false
+            }
         },
-        [updateMessengerState, clearFiles,settings, getSettings, processRpcError, activeChat, setActiveChat, removeChatMessages]
+        [settings, activeChat, removeChatMessages, clearFiles, getSettings, setActiveChat, processRpcError]
     )
 
     const clearChat = useCallback(
-        async (chatUuid) => {
-            const rpcClient = window.rpcClient
-            setMessages([], chatUuid)
-            await clearFiles()
-            await rpcClient.call('clear_chat', [chatUuid]).catch(processRpcError)
+        async (targetUuid) => {
+            try {
+                const snapshot = await callRpc('clear_chat', [targetUuid], 60000)
+                historyRequestRef.current += 1
+                setMessages(snapshot.history, targetUuid)
+                clearFiles()
+                updateMessengerState({...snapshot, chatUuid: targetUuid})
+            } catch (error) {
+                await processRpcError(error)
+            }
         },
-        [setMessages, clearFiles, processRpcError]
+        [setMessages, clearFiles, updateMessengerState, processRpcError]
     )
-
-    useEffect(() => {
-        getHistory()
-    }, [getHistory])
 
     return {openChat, closeChat, clearChat}
 }

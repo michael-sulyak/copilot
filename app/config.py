@@ -59,9 +59,26 @@ TELEGRAM_API_ID = get_config_value('telegram_api_id')
 TELEGRAM_API_HASH = get_config_value('telegram_api_hash')
 GOOGLE_APP_ID = get_config_value('google_app_id')
 
-DEBUG_COPILOT = get_config_value('debug_copilot', False)
-DEV_MODE = get_config_value('dev_mode', False)
-USE_WEBVIEW = get_config_value('use_webview', False)
+
+def get_bool_config(name: str, default: bool = False) -> bool:
+    value = get_config_value(name, default)
+
+    if isinstance(value, bool):
+        return value
+
+    if value is None:
+        return default
+
+    normalized = str(value).strip().lower()
+    if normalized not in {'true', 'false'}:
+        raise ValueError(f'{name} must be a boolean.')
+
+    return normalized in {'true'}
+
+
+DEBUG_COPILOT = get_bool_config('debug_copilot')
+DEV_MODE = get_bool_config('dev_mode')
+USE_WEBVIEW = get_bool_config('use_webview')
 
 HOST_NAME = get_config_value('host_name', 'localhost')
 PORT = int(get_config_value('port', 8123))
@@ -72,7 +89,23 @@ PROFILES_DIR = os.path.join(CONFIGS_DIR, 'profiles')
 PROMPTS_DIR = os.path.join(CONFIGS_DIR, 'prompts')
 CHATS_PATH = os.path.join(CONFIGS_DIR, 'chats.yaml')
 MODELS_PATH = os.path.join(CONFIGS_DIR, 'models.yaml')
-CLEAN_RESPONSES = get_config_value('clean_responses')
+CLEAN_RESPONSES = get_bool_config('clean_responses')
+AI_WEB_SEARCH_MODEL = get_config_value('ai_web_search_model', 'GPT5 mini')
+MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_TOTAL_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_FILES = 20
+ALLOWED_ORIGINS = {
+    f'http://{HOST_NAME}:{PORT}',
+}
+if HOST_NAME in {'localhost', '127.0.0.1', '::1'}:
+    ALLOWED_ORIGINS.update({f'http://localhost:{PORT}', f'http://127.0.0.1:{PORT}', f'http://[::1]:{PORT}'})
+if DEV_MODE:
+    ALLOWED_ORIGINS.update({'http://localhost:3000', 'http://127.0.0.1:3000'})
+ALLOWED_ORIGINS.update(
+    origin.strip().rstrip('/')
+    for origin in str(get_config_value('allowed_origins', '')).split(',')
+    if origin.strip()
+)
 
 MAX_TIME_TO_WAIT_QUEUED = datetime.timedelta(minutes=5)
 MAX_TIME_TO_WAIT_IN_PROGRESS = datetime.timedelta(minutes=15)

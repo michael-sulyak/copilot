@@ -1,4 +1,5 @@
 import React, {Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import {subscribeConnection} from './api'
 import {Card, ToastContainer} from 'react-bootstrap'
 import Header from './components/Header'
 import Message from './components/Message'
@@ -14,8 +15,16 @@ import useChat from './hooks/useChat'
 import useInput from './hooks/useInput'
 import ChatTabs from './components/ChatTabs'
 import useActiveChat from './hooks/useActiveChat'
+import useChatMessageCounts from './hooks/useChatMessageCounts'
 
 function Messenger() {
+    const [connected, setConnected] = useState(() => !!window.rpcClient.ready)
+    useEffect(() => {
+        const updateConnection = () => setConnected(!!window.rpcClient.ready)
+        const unsubscribe = subscribeConnection(updateConnection)
+        updateConnection()
+        return unsubscribe
+    }, [])
     const chatBodyRef = useRef(null)
     const textareaRef = useRef(null)
     const fileInputRef = useRef(null)
@@ -29,7 +38,7 @@ function Messenger() {
         const rpcClient = window.rpcClient
 
         const handleShowNotification = (message) => {
-            addNotification(message)
+            addNotification(Array.isArray(message) ? message[0] : message)
         }
 
         rpcClient.on('show_notification', handleShowNotification)
@@ -41,12 +50,13 @@ function Messenger() {
     const processRpcError = useCallback(
         async (response) => {
             console.error(response)
-            await addNotification(`**${response.message}**\n\n${response?.data?.traceback_exception?.slice(-2)}\n\n(See logs)`)
+            await addNotification(response?.message || 'The request failed. Please check the connection and server logs.')
         },
         [addNotification]
     )
     const {settings, getSettings} = useSettings({addNotification, processRpcError})
     const {activeChat, setActiveChat} = useActiveChat({settings})
+    const messageCounts = useChatMessageCounts({messagesByChatUuid})
     const activeChatUuid = activeChat?.uuid ?? null
     activeChatUuidRef.current = activeChatUuid
     const messages = useMemo(() => (activeChatUuid ? (messagesByChatUuid[activeChatUuid] ?? []) : []), [activeChatUuid, messagesByChatUuid])
@@ -146,9 +156,10 @@ function Messenger() {
         })
     }, [])
     const {chatState, updateMessengerState} = useMessengerState({activeChatUuid})
-    const {attachedFiles, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({
+    const {attachedFiles, isUploading, onFileUpload, removeAttachedFile, clearFiles, uploadFiles} = useFileUpload({
         addNotification,
         updateMessengerState,
+        activeChatUuid,
     })
     const {inputValue, setInputValue, sendMessage, deleteMessage, callButtonCallback, isWaitingAnswer, handleInputChange} = useInput({
         textareaRef,
@@ -164,9 +175,7 @@ function Messenger() {
     })
     const {recordingState, startRecording, stopRecording} = useAudioRecording({
         addNotification,
-        inputValue,
         setInputValue,
-        chatState,
         uploadFiles,
         updateMessengerState,
         processRpcError,
@@ -186,8 +195,7 @@ function Messenger() {
     const closeChatWithScrollPositionCleanup = useCallback(
         async (chatUuid) => {
             saveActiveChatScrollPosition()
-            await closeChat(chatUuid)
-            delete chatScrollPositionsRef.current[chatUuid]
+            if (await closeChat(chatUuid)) delete chatScrollPositionsRef.current[chatUuid]
         },
         [closeChat, saveActiveChatScrollPosition]
     )
@@ -207,9 +215,15 @@ function Messenger() {
     return (
         <Card className="chat-card border-0 h-100 d-flex flex-column">
             <Header settings={settings} clearChat={clearActiveChat} insertText={setInputValue} />
+            {!connected && (
+                <div role="status" className="alert alert-warning mb-0">
+                    Disconnected. Reconnecting… Your draft is preserved.
+                </div>
+            )}
 
             <ChatTabs
                 settings={settings}
+                messageCounts={messageCounts}
                 openChat={openChat}
                 closeChat={closeChatWithScrollPositionCleanup}
                 activeChat={activeChat}
@@ -237,7 +251,7 @@ function Messenger() {
                 handleInputChange={handleInputChange}
                 inputValue={inputValue}
                 textareaRef={textareaRef}
-                isLoading={!activeChat || isWaitingAnswer || chatState.status === 'loading'}
+                isLoading={!connected || !activeChat || isUploading || isWaitingAnswer || chatState.status === 'loading'}
                 activeChat={activeChat}
                 onFileUpload={onFileUpload}
                 fileInputRef={fileInputRef}

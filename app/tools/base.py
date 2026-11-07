@@ -1,5 +1,6 @@
 import abc
 import dataclasses
+import inspect
 import typing
 
 from ..models.openai.base import FunctionLLMTool, LLMFunctionCall
@@ -12,8 +13,8 @@ class BaseLLMToolFabric(abc.ABC):
     @abc.abstractmethod
     def run(self, *args, **kwargs) -> str:
         """
-        Tool executor used by the LLM loop.
-        NOTE: BaseLLM.execute calls tool.func(call), so we accept LLMToolCall here.
+        Tool implementation, accepting keyword arguments from the model.
+        May return a result or an awaitable; describe() adapts the LLMFunctionCall.
         """
 
     def describe(self) -> FunctionLLMTool:
@@ -22,9 +23,13 @@ class BaseLLMToolFabric(abc.ABC):
             for field in dataclasses.fields(self.description)
         }
 
-        def wrapper(call: LLMFunctionCall) -> str:
+        async def wrapper(call: LLMFunctionCall) -> str:
             try:
-                return self.run(**(call.args or {}))
+                if call.args is not None and not isinstance(call.args, dict):
+                    raise TypeError('Tool arguments must be a JSON object.')
+
+                result = self.run(**(call.args or {}))
+                return await result if inspect.isawaitable(result) else result
             except TypeError as e:
                 return gen_tool_error(
                     tool=self.description.name,

@@ -64,8 +64,12 @@ class CodeManagerStepController(BaseStepController):
                 func=_stop,
             )
 
-            await self.conversation.answer(message)
-            await target_event.wait()
+            try:
+                await self.conversation.answer(message)
+                await target_event.wait()
+            finally:
+                self.code_manager._once_time_callback_handlers_map.pop(callback_uuid_to_continue, None)
+                self.code_manager._once_time_callback_handlers_map.pop(callback_uuid_to_stop, None)
 
             if has_stopped:
                 raise RuntimeError('There are too few tokens left to answer.')
@@ -83,12 +87,14 @@ class CodeManager(ChatCallbackHandlerMixin, Chat):
     desired_max_tokens: int | None
 
     def __init__(self, *args, **kwargs) -> None:
+        self.selected_work_dir = None
+        self.welcome_message = None
         self.work_dirs = kwargs.pop('work_dirs')
         self.original_tool_names = list(kwargs.pop('tools'))
         self.desired_max_tokens = kwargs.pop('desired_max_tokens')
         self.connected_tool_names = set(self.original_tool_names)
         if len(self.work_dirs) == 1:
-            self.selected_work_dir = Path(self.work_dirs[0]).resolve()
+            self._choose_work_dir(Path(self.work_dirs[0]).resolve())
 
         super().__init__(*args, **kwargs)
 
@@ -96,6 +102,9 @@ class CodeManager(ChatCallbackHandlerMixin, Chat):
         await self._gen_welcome_message()
         assert self.welcome_message is not None
         return self.welcome_message
+
+    def can_handle_callback_while_processing(self, callback: str) -> bool:
+        return callback in self._once_time_callback_handlers_map
 
     async def handle_callback(self, request: Request) -> None:
         has_influence_on_welcome_message = False
@@ -106,11 +115,15 @@ class CodeManager(ChatCallbackHandlerMixin, Chat):
             has_influence_on_welcome_message = True
         elif request.callback.startswith('add_tool:'):
             tool_name = request.callback.removeprefix('add_tool:')
+            if tool_name not in self.original_tool_names:
+                raise ValueError('This tool is not configured for this chat.')
             self.connected_tool_names.add(tool_name)
             has_influence_on_welcome_message = True
         elif request.callback.startswith('remove_tool:'):
             tool_name = request.callback.removeprefix('remove_tool:')
-            self.connected_tool_names.remove(tool_name)
+            if tool_name not in self.original_tool_names:
+                raise ValueError('This tool is not configured for this chat.')
+            self.connected_tool_names.discard(tool_name)
             has_influence_on_welcome_message = True
         elif request.callback == 'add_context':
             self._add_context()
@@ -128,10 +141,12 @@ class CodeManager(ChatCallbackHandlerMixin, Chat):
             await request.conversation.update_message(self.welcome_message)
 
     def _choose_work_dir(self, work_dir: Path) -> None:
-        self.selected_work_dir = work_dir
+        allowed_dirs = {Path(directory).resolve() for directory in self.work_dirs}
 
-        if not self.selected_work_dir.exists() or not self.selected_work_dir.is_dir():
-            raise ValueError(f'Invalid folder: {self.selected_work_dir}')
+        if work_dir not in allowed_dirs or not work_dir.is_dir():
+            raise ValueError('Select an existing work directory configured for this chat.')
+
+        self.selected_work_dir = work_dir
 
     async def _process(self, *, conversation: Conversation, model_params: dict) -> LLMResponse:
         call_tracker_message: ToolCall | None = None
@@ -162,7 +177,7 @@ class CodeManager(ChatCallbackHandlerMixin, Chat):
         )
 
     def _add_context(self) -> None:
-        if not hasattr(self, 'selected_work_dir'):
+        if self.selected_work_dir is None:
             raise ValueError('Work directory is not selected')
 
         changed_files = list(dict.fromkeys(map(str, get_changed_files(self.selected_work_dir))))
@@ -220,9 +235,12 @@ class CodeManager(ChatCallbackHandlerMixin, Chat):
         )
 
     def _gen_tools(self) -> tuple[FunctionLLMTool, ...]:
+        if self.selected_work_dir is None:
+            raise ValueError('Select a work directory before sending a message.')
+
         return tuple(
             TOOLS_MAP[tool_name](self.selected_work_dir).describe()
-            for tool_name in self.connected_tool_names
+            for tool_name in sorted(self.connected_tool_names)
         )
 
     async def _gen_welcome_message(self) -> None:

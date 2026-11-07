@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import typing
 
@@ -40,8 +41,11 @@ class Chat(BaseChat):
         if request.attachments:
             for attachment in request.attachments:
                 if attachment.is_image:
+                    if not self.model.has_vision:
+                        raise ChatError('This model does not support images.')
+
                     logging.info(f'Image attachment: {attachment.name} ({attachment.mime_type})')
-                    base64_images.append(FileProcessor(attachment).to_base64())
+                    base64_images.append(await asyncio.to_thread(FileProcessor(attachment).to_base64))
                 else:
                     logging.info(f'File attachment: {attachment.name} ({attachment.mime_type})')
                     attachments.append(attachment)
@@ -50,20 +54,18 @@ class Chat(BaseChat):
             await request.conversation.set_text_status('Parsing attachments...')
 
             for attachment in attachments:
+                text = await asyncio.to_thread(FileProcessor(attachment).to_txt)
                 self.memory.add_message(LLMMessage(
                     role=LLMMessageRoles.SYSTEM,
                     content=(
                         f'There has been provided an attachment '
                         f'with name `{attachment.name}` and MIME type `{attachment.mime_type}`.'
                         f'The content of the attachment is as follows:\n'
-                        f'{FileProcessor(attachment).to_txt()}'
+                        f'{text}'
                     ),
                 ))
 
             await request.conversation.reset_text_status()
-
-        if base64_images and not self.model.has_vision:
-            raise ChatError('The models does not support vision.')
 
         self.memory.add_message(LLMMessage(
             role=LLMMessageRoles.USER,
@@ -78,7 +80,7 @@ class Chat(BaseChat):
         await request.conversation.answer(await self.handle_via_llm(conversation=request.conversation))
 
     async def handle_via_llm(self, *, conversation: Conversation) -> Message:
-        logging.info('History: %s', self.memory.get_buffer())
+        logging.debug('Processing conversation with %s history items.', len(self.memory.get_buffer()))
 
         params = {}
 
@@ -107,12 +109,10 @@ class Chat(BaseChat):
             logging.exception(e)
             raise ChatError(str(e)) from e
 
-        content = response.content
+        content = response.content or 'No text response was returned. The agent may have reached its step limit.'
 
         if response.annotations:
             content += f'\n---\n**Sources:**\n{"\n".join(map(lambda x: f"* {x}", response.annotations))}'
-
-        self.memory.add_message(LLMMessage(role=LLMMessageRoles.ASSISTANT, content=content))
 
         return Message(
             content=content,
@@ -125,6 +125,6 @@ class Chat(BaseChat):
         self.memory.clear()
 
     async def _process(self, *, conversation: Conversation, model_params: dict) -> LLMResponse:
-        return await self.model.process(
-            **model_params,
-        )
+        response = await self.model.process(**model_params)
+        self.memory.add_message(LLMMessage(role=LLMMessageRoles.ASSISTANT, content=response.content or ''))
+        return response
